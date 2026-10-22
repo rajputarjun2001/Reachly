@@ -17,11 +17,31 @@ function formatListDate(iso: string) {
   }
 }
 
+function LeadsErrorBanner({ message }: { message: string }) {
+  return (
+    <div
+      role="alert"
+      style={{
+        margin: "0 24px 16px",
+        background: "var(--red-light)",
+        border: "1px solid #FECACA",
+        borderRadius: 8,
+        padding: "12px 14px",
+        fontSize: 13,
+        color: "#B91C1C",
+      }}
+    >
+      {message}
+    </div>
+  );
+}
+
 type LeadsLiveViewProps = {
   initialLists: LeadListSummary[];
+  loadError?: string | null;
 };
 
-export function LeadsLiveView({ initialLists }: LeadsLiveViewProps) {
+export function LeadsLiveView({ initialLists, loadError }: LeadsLiveViewProps) {
   const router = useRouter();
   const [lists, setLists] = useState(initialLists);
   const [uploadOpen, setUploadOpen] = useState(false);
@@ -64,6 +84,7 @@ export function LeadsLiveView({ initialLists }: LeadsLiveViewProps) {
   if (lists.length === 0) {
     return (
       <>
+        {loadError ? <LeadsErrorBanner message={loadError} /> : null}
         <div className="header">
           <div>
             <div className="header-title">Lead Lists</div>
@@ -117,6 +138,7 @@ export function LeadsLiveView({ initialLists }: LeadsLiveViewProps) {
 
   return (
     <>
+      {loadError ? <LeadsErrorBanner message={loadError} /> : null}
       <div className="header">
         <div>
           <div className="header-title">Lead Lists</div>

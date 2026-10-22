@@ -33,13 +33,35 @@ export async function listLeadLists(): Promise<LeadListSummary[]> {
     .eq("workspace_id", ctx.workspaceId)
     .order("created_at", { ascending: false });
 
-  if (error) throw new LeadDataError("Failed to load lead lists", "LIST_FAILED");
+  if (error) {
+    const hint = `${error.code ?? ""} ${error.message ?? ""}`.toLowerCase();
+    if (
+      error.code === "42P01" ||
+      error.code === "PGRST205" ||
+      hint.includes("lead_lists") ||
+      hint.includes("schema cache")
+    ) {
+      throw new LeadDataError(
+        "Lead tables are missing in this Supabase project.",
+        "SCHEMA_MISSING",
+      );
+    }
+    throw new LeadDataError("Failed to load lead lists", "LIST_FAILED");
+  }
 
   return (lists ?? []).map((row) => {
     const nested = row as typeof row & { leads?: { count: number }[] };
     const lead_count = nested.leads?.[0]?.count ?? 0;
-    const { leads: _leads, ...list } = nested;
-    return { ...list, lead_count } as LeadListSummary;
+    return {
+      id: nested.id,
+      workspace_id: nested.workspace_id,
+      name: nested.name,
+      description: nested.description,
+      created_by: nested.created_by,
+      created_at: nested.created_at,
+      updated_at: nested.updated_at,
+      lead_count,
+    };
   });
 }
 
