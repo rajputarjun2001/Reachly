@@ -10,17 +10,21 @@ Reachly is a LinkedIn outreach workspace UI (demo/prototype). This repository im
 - **Chart.js** / react-chartjs-2 (charts from the reference)
 - **Lucide React** (sidebar icons aligned with reference strokes)
 - **Vitest** + React Testing Library
+- **Supabase** (Auth + PostgreSQL with RLS)
 
 ## Prerequisites
 
 - Node.js 20+
 - npm
+- Supabase project (for authentication — see `docs/SETUP.md`)
 
 ## Installation
 
 ```bash
 cd Reachly
 npm install
+cp .env.example .env.local
+# Edit .env.local with your Supabase URL and anon key
 ```
 
 ## Development
@@ -44,7 +48,19 @@ Compare with the reference: open `design-reference/Reachly.html` in a browser at
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm test` | Vitest unit tests |
 
-## Implementation status (Task 001)
+## Authentication (Task 003)
+
+When `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` are set:
+
+- Sign in / sign up / password reset at `/login`, `/signup`, etc.
+- Protected app routes (middleware + session cookies via `@supabase/ssr`)
+- Workspace bootstrap at `/workspace/setup` after first login
+
+Without Supabase env vars, the app runs in **demo mode** (`/setup` for instructions). Dashboard data remains sample-only.
+
+Apply database migrations: see `docs/SETUP.md`.
+
+## Implementation status (UI)
 
 **Implemented (UI demo):**
 

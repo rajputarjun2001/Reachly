@@ -2,53 +2,52 @@
 
 ## Overview
 
-Single Next.js application. Server components are used for static page shells where possible; client components handle charts, modals, navigation preview mode, and Unibox selection.
+Single Next.js application (modular monolith). Server Components and middleware enforce authentication when Supabase is configured. Product UI remains demo-data driven until later milestones persist domain data.
 
 ## Routing
 
-| Path | Component source |
-|------|------------------|
-| `/dashboard` | `dashboard-screen.tsx` + `PreviewSwitch` |
-| `/campaigns` | `campaigns-screen.tsx` |
-| `/campaigns/[id]` | `campaign-detail-screen.tsx` + `getCampaignById` |
-| `/leads`, `/accounts`, `/unibox`, `/analytics` | respective `*-screen.tsx` + empty variants |
-| `/settings` | `settings-screen.tsx` (client panel state) |
-| `/onboarding` | `onboarding-screen.tsx` (outside app shell) |
+| Path | Access |
+|------|--------|
+| `/login`, `/signup`, `/forgot-password`, `/reset-password` | Public (auth UI) |
+| `/auth/callback` | OAuth / email confirm code exchange |
+| `/auth/signout` | POST — clears session |
+| `/setup` | Public — configuration status |
+| `/workspace/setup` | Authenticated users without a workspace |
+| `/dashboard`, `/campaigns`, … | Protected when Supabase configured |
+| `/onboarding` | Legacy demo onboarding (unchanged UI) |
 
-Route group `(app)` wraps authenticated-style shell: `AppProviders` → `AppShell` → `Sidebar` + `AppModals`.
+Route group `(app)` wraps `AppShell` + demo screens.
 
-## Styling strategy
+## Authentication flow
 
-- **Reference CSS** extracted to `src/styles/reachly-reference.css` (tokens + component classes from HTML)
-- **Tailwind** for incremental utilities; global import order: reference CSS, then Tailwind
-- **Plus Jakarta Sans** via `next/font/google`
+1. Browser uses `@supabase/ssr` `createBrowserClient` only on auth forms (anon key).
+2. Middleware (`src/middleware.ts`) refreshes session cookies via `updateSession`.
+3. When configured, middleware redirects unauthenticated users away from app routes to `/login?next=…`.
+4. Server Components use `createClient()` from `src/lib/supabase/server.ts` (cookie-backed).
+5. No tokens in `localStorage`.
 
-## State
+## Workspace resolution
 
-| Concern | Mechanism |
-|---------|-----------|
-| Empty vs populated preview | `PreviewModeProvider` |
-| Modals | `ModalProvider` + `AppModals` |
-| Settings panel | Local `useState` in `SettingsScreen` |
-| Unibox thread | Local `useState` for selected conversation |
+- `getWorkspaceContext()` (`src/lib/workspace/context.ts`) loads the authenticated user and **first** `workspace_members` row (documented for future workspace switcher).
+- Server actions and future APIs must not trust client-supplied `workspace_id` without membership checks.
+- Initial workspace creation: RPC `create_initial_workspace` (idempotent, `SECURITY DEFINER`, fixed `search_path`).
 
-## Demo data
+## Database (Supabase PostgreSQL)
 
-`src/data/demo/*` — campaigns, conversations, workspace profile. Not loaded from an API.
+Tables: `profiles`, `workspaces`, `workspace_members` — see migration SQL.
 
-## Planned evolution
+RLS enabled on all three. Membership reads use `is_workspace_member()` / `workspace_role()` helpers to avoid policy recursion.
 
-1. API layer (REST or tRPC) behind server actions
-2. Auth (session/JWT) + workspace membership
-3. Postgres (or similar) with tenant_id on all domain tables
-4. Job queue for campaign execution and inbox sync via **supported** LinkedIn APIs/workflows
-5. Replace demo providers with real data fetching (RSC + caching)
+## Demo data boundary
+
+`src/data/demo/*` powers dashboard/campaigns UI. Banners state clearly that metrics are **not** persisted customer data. Authenticated workspace records are separate and not merged into demo tables in this milestone.
 
 ## Implemented vs planned
 
 | Capability | Status |
 |------------|--------|
 | Reference UI routes | Implemented |
-| Charts | Implemented (client Chart.js) |
-| CSV upload / send message | UI only, disabled or non-persistent |
-| Auth, DB, billing, LinkedIn API | Planned |
+| Supabase Auth (email/password) | Implemented |
+| Workspace bootstrap + RLS | Implemented (apply migrations) |
+| Campaign/lead persistence | Planned |
+| LinkedIn integration | Planned |

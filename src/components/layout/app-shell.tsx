@@ -5,12 +5,32 @@ import { Menu } from "lucide-react";
 import { Sidebar } from "./sidebar";
 import { AppModals } from "@/components/modals/app-modals";
 
-export function AppShell({ children }: { children: ReactNode }) {
+type AppShellProps = {
+  children: ReactNode;
+  workspaceName: string;
+  workspacePlan: string;
+  workspaceInitials: string;
+  showSignOut?: boolean;
+};
+
+export function AppShell({
+  children,
+  workspaceName,
+  workspacePlan,
+  workspaceInitials,
+  showSignOut,
+}: AppShellProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
 
   return (
     <div className="reachly-shell">
-      <Sidebar mobileOpen={mobileOpen} />
+      <Sidebar
+        mobileOpen={mobileOpen}
+        workspaceName={workspaceName}
+        workspacePlan={workspacePlan}
+        workspaceInitials={workspaceInitials}
+        showSignOut={showSignOut}
+      />
       <main className="main">
         <button
           type="button"

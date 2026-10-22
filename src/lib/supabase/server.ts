@@ -1,0 +1,34 @@
+import { createServerClient } from "@supabase/ssr";
+import { cookies } from "next/headers";
+import { getSupabasePublicEnv, isSupabaseConfigured } from "@/lib/env";
+
+export async function createClient() {
+  const env = getSupabasePublicEnv();
+  if (!env) {
+    throw new Error("Supabase is not configured");
+  }
+
+  const cookieStore = await cookies();
+
+  return createServerClient(env.url, env.anonKey, {
+    cookies: {
+      getAll() {
+        return cookieStore.getAll();
+      },
+      setAll(cookiesToSet) {
+        try {
+          cookiesToSet.forEach(({ name, value, options }) => {
+            cookieStore.set(name, value, options);
+          });
+        } catch {
+          // setAll from Server Component — middleware will refresh session
+        }
+      },
+    },
+  });
+}
+
+export async function createClientIfConfigured() {
+  if (!isSupabaseConfigured()) return null;
+  return createClient();
+}

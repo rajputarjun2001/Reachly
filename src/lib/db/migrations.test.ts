@@ -1,0 +1,15 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { describe, expect, it } from "vitest";
+
+describe("supabase migrations", () => {
+  it("enables RLS and defines bootstrap RPC", () => {
+    const sql = readFileSync(
+      join(process.cwd(), "supabase/migrations/20260222120000_initial_auth_workspace.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/enable row level security/i);
+    expect(sql).toMatch(/create_initial_workspace/);
+    expect(sql).not.toMatch(/using\s*\(\s*true\s*\)/i);
+  });
+});

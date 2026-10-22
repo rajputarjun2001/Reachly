@@ -1,42 +1,47 @@
-# Reachly — Security Principles
+# Reachly — Security
 
-## Intended principles (not all implemented yet)
+## Implemented (Task 003)
 
-### Tenant isolation
+### Authentication
 
-- Every workspace’s data must be scoped by `workspace_id` at the database and API layers.
-- Cross-tenant access must be impossible via ID guessing (authorize on every request).
-
-### Authorization
-
-- Role-based access within a workspace (owner, member, future roles).
-- Server-side enforcement; UI hiding alone is insufficient.
+- Supabase Auth with **HTTP-only cookie sessions** via `@supabase/ssr` (no custom token storage in `localStorage`).
+- Middleware refreshes sessions and redirects unauthenticated users from app routes when Supabase is configured.
+- Generic error messages on sign-in/sign-up to avoid email enumeration where practical.
+- Password reset and sign-up validated server-side in Server Actions.
+- `getSafeRedirectPath()` blocks open redirects (`//`, `https://`, auth loops).
 
 ### Secrets
 
-- LinkedIn and third-party credentials live in server-side secret stores only.
-- **Never** collect LinkedIn passwords in the web UI (the HTML reference included prototype password fields; the app does not).
+- Only `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` in the client bundle.
+- **Service role key is not used** in this app and must never be exposed to the browser.
+- `.env.local` is gitignored; `.env.example` has placeholders only.
 
-### Input validation
+### Database
 
-- Validate CSV uploads, message templates, and URLs server-side.
-- Sanitize user-generated content displayed in Unibox.
+- Row Level Security **enabled** on `profiles`, `workspaces`, `workspace_members`.
+- No `USING (true)` policies on tenant data.
+- Workspace creation only through `create_initial_workspace()` (`SECURITY DEFINER`, `search_path = public`).
+- Users cannot insert arbitrary `workspace_members` rows via client policies.
+- Profile rows scoped to `auth.uid()`.
 
-### Logging and audit
+### Workspace trust boundaries
 
-- Audit log for campaign changes, sends, and integration connections (planned).
+- Server resolves workspace from membership, not from client IDs alone.
+- Middleware requires workspace membership before app routes (when Supabase configured).
 
-### Customer data
+## Remaining risks / not yet implemented
 
-- Encrypt sensitive fields at rest; minimize retention of message content per policy.
+- No rate limiting on auth endpoints (rely on Supabase / edge in production).
+- RLS integration tests require local Supabase (`supabase db test`) — not run in CI unless configured.
+- Demo UI still visible after login; data is not tenant-persisted campaigns/leads.
+- Team invitations, audit logs, and billing are out of scope.
 
-## Prototype boundaries (current app)
+## Verification
 
-- No authentication — do not deploy publicly without auth.
-- Demo buttons (Send, Upload, Connect) are disabled or non-functional by design.
-- Do not add API keys or `.env` values to the repository.
+```bash
+npm test
+supabase db push   # your project
+supabase db test   # optional local RLS checks
+```
 
-## LinkedIn and automation
-
-- Use **authorized** integration paths compliant with LinkedIn terms.
-- Do not implement detection evasion, proxy bypass, or “invisible automation” features.
+Review migrations in `supabase/migrations/` before applying to production.

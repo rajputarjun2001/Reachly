@@ -13,7 +13,6 @@ import {
 } from "lucide-react";
 import { appRoutes } from "@/lib/routes";
 import { usePreviewMode } from "@/context/preview-mode-context";
-import { demoWorkspace } from "@/data/demo/workspace";
 import { cn } from "@/lib/cn";
 
 const mainNav = [
@@ -31,6 +30,10 @@ const accountNav = [
 
 type SidebarProps = {
   mobileOpen?: boolean;
+  workspaceName: string;
+  workspacePlan: string;
+  workspaceInitials: string;
+  showSignOut?: boolean;
 };
 
 function isActive(pathname: string, href: string) {
@@ -40,7 +43,13 @@ function isActive(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-export function Sidebar({ mobileOpen }: SidebarProps) {
+export function Sidebar({
+  mobileOpen,
+  workspaceName,
+  workspacePlan,
+  workspaceInitials,
+  showSignOut,
+}: SidebarProps) {
   const pathname = usePathname();
   const { emptyMode, toggleEmptyMode } = usePreviewMode();
 
@@ -117,11 +126,18 @@ export function Sidebar({ mobileOpen }: SidebarProps) {
             👁 Preview: <span id="emptyToggleLabel">{emptyMode ? "Empty" : "Populated"}</span>
           </button>
         </div>
+        {showSignOut ? (
+          <form action="/auth/signout" method="post" style={{ padding: "0 10px 8px" }}>
+            <button type="submit" className="btn btn-outline btn-sm" style={{ width: "100%" }}>
+              Sign out
+            </button>
+          </form>
+        ) : null}
         <div className="workspace-pill">
-          <div className="ws-avatar">{demoWorkspace.initials}</div>
+          <div className="ws-avatar">{workspaceInitials}</div>
           <div className="ws-info">
-            <div className="ws-name">{demoWorkspace.name}</div>
-            <div className="ws-plan">{demoWorkspace.planLabel}</div>
+            <div className="ws-name">{workspaceName}</div>
+            <div className="ws-plan">{workspacePlan}</div>
           </div>
         </div>
       </div>

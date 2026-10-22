@@ -1,6 +1,6 @@
 # Implementation Plan
 
-## Phase 1 — Foundation and reference-driven UI (current)
+## Phase 1 — Foundation and reference-driven UI
 
 - [x] Audit `Reachly.html` → `docs/DESIGN_REFERENCE_AUDIT.md`
 - [x] Next.js + TypeScript + Tailwind + reference CSS
@@ -16,11 +16,17 @@
 
 ## Phase 3 — Authentication and workspaces
 
-- Sign up / login, session management, workspace switcher
+- [x] Supabase Auth (email/password, reset, callback, sign-out)
+- [x] Cookie sessions via `@supabase/ssr`
+- [x] Protected routes in middleware when Supabase configured
+- [x] Workspace setup flow + `create_initial_workspace` RPC
+- [x] Server-side workspace context resolver
+- [ ] Workspace switcher UI (resolver supports multiple memberships later)
 
 ## Phase 4 — Database schema, authorization, tenant isolation
 
-- Migrations, RLS or app-layer tenant guards, roles
+- [x] Initial migrations + RLS for profiles/workspaces/members
+- [ ] Domain tables (campaigns, leads) with `workspace_id`
 
 ## Phase 5 — Lead management and CSV processing
 
