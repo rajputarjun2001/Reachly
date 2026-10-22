@@ -1,0 +1,52 @@
+/**
+ * App shell layout — loaded after reachly-reference.css.
+ * Grid avoids fixed sidebar + margin-left drift (overlap on some viewports).
+ */
+.reachly-shell {
+  display: grid;
+  grid-template-columns: var(--sidebar-w, 224px) minmax(0, 1fr);
+  width: 100%;
+  min-height: 100vh;
+  align-items: start;
+}
+
+.reachly-shell > .sidebar {
+  position: sticky;
+  top: 0;
+  left: auto;
+  width: var(--sidebar-w, 224px);
+  height: 100vh;
+  max-height: 100vh;
+}
+
+.reachly-shell > .main {
+  margin-left: 0 !important;
+  min-width: 0;
+  width: 100%;
+}
+
+@media (max-width: 900px) {
+  .reachly-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .reachly-shell > .sidebar {
+    position: fixed;
+    left: 0;
+    top: 0;
+    transform: translateX(-100%);
+    box-shadow: var(--shadow-md);
+  }
+
+  .reachly-shell > .sidebar.mobile-open {
+    transform: translateX(0);
+  }
+
+  .reachly-shell > .main {
+    grid-column: 1;
+  }
+
+  #mobile-nav-toggle {
+    display: inline-flex !important;
+  }
+}

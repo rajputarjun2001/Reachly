@@ -1,0 +1,1562 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1"><style>:root{color-scheme:light}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<title>Reachly (Copy)</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+:root {
+  --bg: #F5F6FA;
+  --sidebar-bg: #FFFFFF;
+  --card: #FFFFFF;
+  --border: #E5E7EB;
+  --fg: #111827;
+  --fg2: #6B7280;
+  --fg3: #9CA3AF;
+  --primary: #6366F1;
+  --primary-light: #EEF2FF;
+  --primary-dark: #4F46E5;
+  --green: #10B981;
+  --green-light: #ECFDF5;
+  --amber: #F59E0B;
+  --amber-light: #FFFBEB;
+  --red: #EF4444;
+  --red-light: #FEF2F2;
+  --blue: #3B82F6;
+  --blue-light: #EFF6FF;
+  --sidebar-w: 224px;
+  --header-h: 60px;
+  --radius: 10px;
+  --shadow: 0 1px 3px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.04);
+  --shadow-md: 0 4px 12px rgba(0,0,0,.1);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0F1117; --sidebar-bg: #1A1D27; --card: #1E2130;
+    --border: #2D3148; --fg: #F1F5F9; --fg2: #94A3B8; --fg3: #64748B;
+    --primary-light: #312E81; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0F1117; --sidebar-bg: #1A1D27; --card: #1E2130;
+  --border: #2D3148; --fg: #F1F5F9; --fg2: #94A3B8; --fg3: #64748B;
+  --primary-light: #312E81; color-scheme: dark;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Plus Jakarta Sans',system-ui,sans-serif;background:var(--bg);color:var(--fg);font-size:14px;line-height:1.5;min-height:100vh;display:flex}
+
+/* SIDEBAR */
+.sidebar{width:var(--sidebar-w);background:var(--sidebar-bg);border-right:1px solid var(--border);display:flex;flex-direction:column;height:100vh;position:fixed;left:0;top:0;z-index:100;overflow:hidden;transition:width .2s}
+.sidebar-logo{padding:18px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px}
+.logo-mark{width:32px;height:32px;background:var(--primary);border-radius:8px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:16px;font-weight:800;flex-shrink:0}
+.logo-name{font-size:18px;font-weight:800;color:var(--fg);letter-spacing:-.5px}
+.logo-name span{color:var(--primary)}
+.sidebar-nav{padding:12px 10px;flex:1;overflow-y:auto}
+.nav-label{font-size:10px;font-weight:700;color:var(--fg3);text-transform:uppercase;letter-spacing:.08em;padding:4px 10px 6px}
+.nav-item{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:8px;cursor:pointer;color:var(--fg2);font-weight:500;font-size:13.5px;transition:.15s;margin-bottom:1px;white-space:nowrap}
+.nav-item:hover{background:var(--primary-light);color:var(--primary)}
+.nav-item.active{background:var(--primary-light);color:var(--primary);font-weight:600}
+.nav-item svg{flex-shrink:0;opacity:.8}
+.nav-item.active svg{opacity:1}
+.nav-badge{margin-left:auto;background:var(--primary);color:#fff;font-size:10px;font-weight:700;padding:2px 6px;border-radius:20px;min-width:18px;text-align:center}
+.sidebar-footer{padding:12px 10px;border-top:1px solid var(--border)}
+.workspace-pill{display:flex;align-items:center;gap:9px;padding:9px 12px;border-radius:8px;cursor:pointer;transition:.15s}
+.workspace-pill:hover{background:var(--bg)}
+.ws-avatar{width:28px;height:28px;border-radius:7px;background:var(--primary);color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.ws-info{flex:1;min-width:0}
+.ws-name{font-size:12.5px;font-weight:600;color:var(--fg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ws-plan{font-size:10.5px;color:var(--fg3)}
+
+/* MAIN */
+.main{margin-left:var(--sidebar-w);flex:1;display:flex;flex-direction:column;min-height:100vh}
+.header{height:var(--header-h);background:var(--sidebar-bg);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 24px;gap:16px;position:sticky;top:0;z-index:50}
+.header-title{font-size:16px;font-weight:700;color:var(--fg);flex:1}
+.header-sub{font-size:12px;color:var(--fg2);margin-top:1px;font-weight:400}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;border:none;transition:.15s;white-space:nowrap}
+.btn-primary{background:var(--primary);color:#fff}
+.btn-primary:hover{background:var(--primary-dark)}
+.btn-outline{background:transparent;color:var(--fg);border:1px solid var(--border)}
+.btn-outline:hover{background:var(--bg);border-color:var(--fg3)}
+.btn-sm{padding:6px 12px;font-size:12px}
+.btn-ghost{background:transparent;color:var(--fg2);border:none;padding:6px 8px}
+.btn-ghost:hover{background:var(--bg);color:var(--fg)}
+.content{padding:24px;flex:1}
+
+/* CARDS */
+.card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow)}
+.card-header{padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px}
+.card-title{font-size:14px;font-weight:700;color:var(--fg)}
+.card-body{padding:20px}
+
+/* STATS ROW */
+.stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px}
+.stat-card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:20px;box-shadow:var(--shadow)}
+.stat-icon{width:40px;height:40px;border-radius:10px;display:flex;align-items:center;justify-content:center;margin-bottom:12px;font-size:18px}
+.stat-val{font-size:26px;font-weight:800;color:var(--fg);letter-spacing:-1px;line-height:1}
+.stat-label{font-size:12px;color:var(--fg2);margin-top:4px;font-weight:500}
+.stat-delta{font-size:11px;margin-top:6px;display:flex;align-items:center;gap:3px;font-weight:600}
+.delta-up{color:var(--green)}
+.delta-down{color:var(--red)}
+
+/* BADGE */
+.badge{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:20px;font-size:11px;font-weight:600}
+.badge-green{background:var(--green-light);color:#059669}
+.badge-amber{background:var(--amber-light);color:#D97706}
+.badge-red{background:var(--red-light);color:#DC2626}
+.badge-blue{background:var(--blue-light);color:#2563EB}
+.badge-indigo{background:var(--primary-light);color:var(--primary)}
+.badge-gray{background:var(--bg);color:var(--fg2);border:1px solid var(--border)}
+
+/* TABLE */
+.table-wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse}
+th{font-size:11px;font-weight:700;color:var(--fg3);text-transform:uppercase;letter-spacing:.05em;padding:10px 16px;text-align:left;border-bottom:1px solid var(--border);background:var(--bg)}
+td{padding:13px 16px;border-bottom:1px solid var(--border);font-size:13px;color:var(--fg)}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:var(--primary-light)}
+.td-main{font-weight:600}
+.td-sub{font-size:11px;color:var(--fg2);margin-top:2px}
+
+/* PROGRESS BAR */
+.prog-wrap{height:6px;background:var(--border);border-radius:3px;overflow:hidden}
+.prog-bar{height:100%;border-radius:3px;transition:width .3s}
+
+/* AVATAR */
+.avatar{width:32px;height:32px;border-radius:50%;background:var(--primary);color:#fff;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.avatar-sm{width:24px;height:24px;font-size:10px}
+.avatar-stack{display:flex;flex-direction:row-reverse}
+.avatar-stack .avatar{border:2px solid var(--card);margin-left:-8px}
+
+/* MODAL */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:500;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:.2s}
+.modal-overlay.open{opacity:1;pointer-events:all}
+.modal{background:var(--card);border-radius:14px;box-shadow:0 20px 60px rgba(0,0,0,.2);width:90%;max-width:520px;max-height:90vh;overflow:hidden;display:flex;flex-direction:column;transform:scale(.96);transition:.2s}
+.modal-overlay.open .modal{transform:scale(1)}
+.modal-lg{max-width:700px}
+.modal-xl{max-width:860px}
+.modal-header{padding:20px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px}
+.modal-title{font-size:16px;font-weight:700;flex:1}
+.modal-body{padding:24px;overflow-y:auto;flex:1}
+.modal-footer{padding:16px 24px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:flex-end;gap:10px}
+.close-btn{width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--fg2);border:none;background:transparent;font-size:18px;transition:.15s}
+.close-btn:hover{background:var(--bg);color:var(--fg)}
+
+/* FORM */
+.form-group{margin-bottom:18px}
+label.form-label{display:block;font-size:12.5px;font-weight:600;color:var(--fg);margin-bottom:6px}
+.form-input{width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--fg);font-family:inherit;font-size:13.5px;outline:none;transition:.15s}
+.form-input:focus{border-color:var(--primary);box-shadow:0 0 0 3px rgba(99,102,241,.15)}
+.form-select{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%236B7280' d='M6 8L1 3h10z'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center}
+textarea.form-input{resize:vertical;min-height:80px}
+.form-hint{font-size:11.5px;color:var(--fg3);margin-top:4px}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+
+/* DROPDOWN */
+.dropdown{position:relative;display:inline-block}
+.dropdown-menu{position:absolute;right:0;top:calc(100% + 4px);background:var(--card);border:1px solid var(--border);border-radius:10px;box-shadow:var(--shadow-md);min-width:180px;z-index:200;opacity:0;pointer-events:none;transform:translateY(-4px);transition:.15s;overflow:hidden}
+.dropdown-menu.open{opacity:1;pointer-events:all;transform:translateY(0)}
+.dd-item{padding:10px 14px;font-size:13px;cursor:pointer;display:flex;align-items:center;gap:9px;color:var(--fg);transition:.1s}
+.dd-item:hover{background:var(--primary-light);color:var(--primary)}
+.dd-item.danger{color:var(--red)}
+.dd-item.danger:hover{background:var(--red-light)}
+.dd-sep{height:1px;background:var(--border);margin:4px 0}
+
+/* TABS */
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--border);margin-bottom:20px}
+.tab{padding:10px 16px;font-size:13px;font-weight:600;color:var(--fg2);cursor:pointer;border-bottom:2px solid transparent;transition:.15s;margin-bottom:-1px}
+.tab.active{color:var(--primary);border-bottom-color:var(--primary)}
+.tab:hover:not(.active){color:var(--fg);border-bottom-color:var(--border)}
+.tab-count{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:var(--border);color:var(--fg2);font-size:10px;margin-left:5px}
+.tab.active .tab-count{background:var(--primary);color:#fff}
+
+/* SEARCH INPUT */
+.search-input{display:flex;align-items:center;gap:8px;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:8px 12px;flex:1;max-width:280px}
+.search-input input{border:none;background:transparent;outline:none;font-size:13px;color:var(--fg);width:100%;font-family:inherit}
+.search-input input::placeholder{color:var(--fg3)}
+
+/* TOGGLE */
+.toggle{width:36px;height:20px;background:var(--border);border-radius:10px;position:relative;cursor:pointer;transition:.2s;flex-shrink:0}
+.toggle.on{background:var(--primary)}
+.toggle::after{content:'';width:14px;height:14px;background:#fff;border-radius:50%;position:absolute;top:3px;left:3px;transition:.2s;box-shadow:0 1px 3px rgba(0,0,0,.2)}
+.toggle.on::after{left:19px}
+
+/* SCREEN SYSTEM */
+[data-screen]{display:none}
+[data-screen].active{display:block}
+
+/* ONBOARDING */
+.onboard-overlay{position:fixed;inset:0;background:var(--bg);z-index:800;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px}
+.onboard-card{background:var(--card);border-radius:16px;border:1px solid var(--border);width:100%;max-width:560px;overflow:hidden}
+.onboard-progress{display:flex;gap:6px;margin-bottom:32px}
+.onboard-step-dot{height:4px;border-radius:2px;flex:1;background:var(--border);transition:.3s}
+.onboard-step-dot.done{background:var(--primary)}
+.onboard-body{padding:40px}
+.onboard-icon{width:52px;height:52px;border-radius:14px;background:var(--primary-light);display:flex;align-items:center;justify-content:center;margin-bottom:20px;font-size:24px}
+.onboard-title{font-size:22px;font-weight:800;color:var(--fg);margin-bottom:8px;line-height:1.2}
+.onboard-sub{font-size:14px;color:var(--fg2);line-height:1.6;margin-bottom:28px}
+.onboard-footer{padding:20px 40px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+
+/* EMPTY STATE */
+.empty-state{text-align:center;padding:60px 24px}
+.empty-icon{width:64px;height:64px;border-radius:16px;background:var(--primary-light);display:flex;align-items:center;justify-content:center;margin:0 auto 16px;font-size:28px}
+.empty-title{font-size:16px;font-weight:700;color:var(--fg);margin-bottom:6px}
+.empty-sub{font-size:13px;color:var(--fg2);max-width:320px;margin:0 auto 20px}
+
+/* ACCOUNT CARD */
+.account-card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:20px;display:flex;flex-direction:column;gap:14px;position:relative;box-shadow:var(--shadow)}
+.account-card .dots-btn{position:absolute;top:12px;right:12px}
+.account-status-bar{display:flex;align-items:center;justify-content:space-between}
+.account-info{display:flex;align-items:center;gap:12px}
+.li-avatar{width:44px;height:44px;border-radius:12px;background:linear-gradient(135deg,#0077B5,#00A0DC);display:flex;align-items:center;justify-content:center;color:#fff;font-size:18px;font-weight:700;flex-shrink:0}
+.account-name{font-size:14px;font-weight:700;color:var(--fg)}
+.account-title{font-size:12px;color:var(--fg2);margin-top:2px}
+.account-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;border-top:1px solid var(--border);padding-top:14px}
+.acct-stat{text-align:center}
+.acct-stat-val{font-size:17px;font-weight:800;color:var(--fg)}
+.acct-stat-label{font-size:10.5px;color:var(--fg3);margin-top:1px}
+
+/* CAMPAIGN CARD */
+.campaign-card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:20px;position:relative;box-shadow:var(--shadow);display:flex;flex-direction:column;gap:16px}
+.campaign-card .dots-btn{position:absolute;top:12px;right:12px}
+
+/* UNIBOX */
+.unibox-wrap{display:flex;height:calc(100vh - var(--header-h) - 48px);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;background:var(--card)}
+.convo-list{width:320px;border-right:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0}
+.convo-search{padding:12px;border-bottom:1px solid var(--border)}
+.convo-item{padding:14px 16px;border-bottom:1px solid var(--border);cursor:pointer;transition:.1s;display:flex;gap:10px;align-items:flex-start}
+.convo-item:hover,.convo-item.active{background:var(--primary-light)}
+.convo-item.unread .convo-name{font-weight:700}
+.convo-meta{flex:1;min-width:0}
+.convo-name{font-size:13px;font-weight:600;color:var(--fg)}
+.convo-preview{font-size:12px;color:var(--fg2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:2px}
+.convo-time{font-size:11px;color:var(--fg3);flex-shrink:0;margin-top:1px}
+.unread-dot{width:8px;height:8px;background:var(--primary);border-radius:50%;margin-top:5px;flex-shrink:0}
+.chat-panel{flex:1;display:flex;flex-direction:column}
+.chat-header{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px}
+.chat-messages{flex:1;overflow-y:auto;padding:20px;display:flex;flex-direction:column;gap:12px}
+.msg-bubble{max-width:65%;padding:10px 14px;border-radius:12px;font-size:13px;line-height:1.5}
+.msg-bubble.sent{background:var(--primary);color:#fff;align-self:flex-end;border-bottom-right-radius:4px}
+.msg-bubble.recv{background:var(--bg);color:var(--fg);align-self:flex-start;border-bottom-left-radius:4px;border:1px solid var(--border)}
+.msg-time{font-size:10.5px;opacity:.7;margin-top:4px;text-align:right}
+.msg-time.recv{text-align:left;color:var(--fg3)}
+.chat-compose{padding:14px 20px;border-top:1px solid var(--border);display:flex;align-items:flex-end;gap:10px}
+.chat-compose textarea{flex:1;border:1px solid var(--border);border-radius:10px;padding:10px 14px;font-family:inherit;font-size:13px;resize:none;background:var(--bg);color:var(--fg);outline:none;max-height:100px}
+.chat-compose textarea:focus{border-color:var(--primary)}
+
+/* STEP SEQUENCE */
+.sequence-step{display:flex;gap:16px;position:relative;padding-bottom:24px}
+.sequence-step:last-child{padding-bottom:0}
+.sequence-step:not(:last-child)::after{content:'';position:absolute;left:15px;top:32px;width:2px;height:calc(100% - 8px);background:var(--border)}
+.step-num{width:32px;height:32px;border-radius:50%;background:var(--primary-light);border:2px solid var(--primary);color:var(--primary);font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;z-index:1}
+.step-body{flex:1;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:14px}
+.step-label{font-size:11.5px;font-weight:700;color:var(--fg3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px}
+.step-text{font-size:13px;color:var(--fg);line-height:1.5}
+
+/* DOTS BUTTON */
+.dots-btn{width:28px;height:28px;border-radius:6px;display:flex;align-items:center;justify-content:center;cursor:pointer;background:transparent;border:none;color:var(--fg3);font-size:18px;transition:.1s;letter-spacing:2px;line-height:1}
+.dots-btn:hover{background:var(--bg);color:var(--fg)}
+
+/* SETTINGS LAYOUT */
+.settings-wrap{display:grid;grid-template-columns:200px 1fr;gap:24px;align-items:start}
+.settings-nav{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;box-shadow:var(--shadow)}
+.settings-nav-item{padding:11px 16px;font-size:13px;font-weight:500;color:var(--fg2);cursor:pointer;transition:.1s;display:flex;align-items:center;gap:9px;border-left:3px solid transparent}
+.settings-nav-item:hover{background:var(--bg);color:var(--fg)}
+.settings-nav-item.active{background:var(--primary-light);color:var(--primary);font-weight:600;border-left-color:var(--primary)}
+.settings-panel{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow)}
+
+/* UPLOAD ZONE */
+.upload-zone{border:2px dashed var(--border);border-radius:10px;padding:36px;text-align:center;cursor:pointer;transition:.2s}
+.upload-zone:hover{border-color:var(--primary);background:var(--primary-light)}
+.upload-icon{font-size:32px;margin-bottom:10px}
+
+/* SAFETY BANNER */
+.safety-banner{background:linear-gradient(135deg,#EEF2FF,#E0E7FF);border:1px solid #C7D2FE;border-radius:var(--radius);padding:14px 18px;display:flex;align-items:center;gap:12px;margin-bottom:24px}
+.safety-banner-icon{font-size:20px}
+.safety-banner-text{flex:1;font-size:13px;color:#3730A3}
+.safety-banner-text strong{font-weight:700}
+
+/* MISC */
+.chip{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:var(--bg);border:1px solid var(--border);border-radius:20px;font-size:12px;font-weight:500;color:var(--fg2);cursor:pointer;transition:.1s}
+.chip:hover,.chip.active{background:var(--primary-light);border-color:var(--primary);color:var(--primary)}
+.divider{height:1px;background:var(--border);margin:20px 0}
+.text-right{text-align:right}
+.text-sm{font-size:12px}
+.text-xs{font-size:11px}
+.fw-700{font-weight:700}
+.color-primary{color:var(--primary)}
+.color-green{color:var(--green)}
+.color-red{color:var(--red)}
+.color-amber{color:var(--amber)}
+.color-muted{color:var(--fg2)}
+.flex{display:flex}
+.flex-center{display:flex;align-items:center}
+.flex-between{display:flex;align-items:center;justify-content:space-between}
+.gap-8{gap:8px}
+.gap-12{gap:12px}
+.gap-16{gap:16px}
+.mb-16{margin-bottom:16px}
+.mb-20{margin-bottom:20px}
+.mb-24{margin-bottom:24px}
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px}
+.grid-4{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
+.loading-bar{height:3px;background:linear-gradient(90deg,var(--primary),#818CF8,var(--primary));background-size:200% 100%;animation:loading 1.2s linear infinite;border-radius:2px}
+@keyframes loading{0%{background-position:100%}100%{background-position:-100%}}
+</style>
+</head>
+<body>
+
+<!-- ONBOARDING -->
+<div id="onboardOverlay" class="onboard-overlay" style="display:none">
+  <div class="onboard-progress" id="onboardDots">
+    <div class="onboard-step-dot done" id="od1"></div>
+    <div class="onboard-step-dot" id="od2"></div>
+    <div class="onboard-step-dot" id="od3"></div>
+    <div class="onboard-step-dot" id="od4"></div>
+  </div>
+  <div class="onboard-card">
+    <!-- Step 1 -->
+    <div class="onboard-body" id="ob1">
+      <div class="onboard-icon">🚀</div>
+      <div class="onboard-title">Welcome to Reachly</div>
+      <div class="onboard-sub">Your smart LinkedIn outreach engine. Connect with your ideal customers at scale — safely, automatically, and without getting banned.</div>
+      <div class="form-group"><label class="form-label">Your full name</label><input class="form-input" value="Ashish Dhingra" placeholder="John Smith"></div>
+      <div class="form-group"><label class="form-label">Company name</label><input class="form-input" value="iDesign.Market" placeholder="Acme Corp"></div>
+    </div>
+    <!-- Step 2 -->
+    <div class="onboard-body" id="ob2" style="display:none">
+      <div class="onboard-icon">💼</div>
+      <div class="onboard-title">Connect LinkedIn Account</div>
+      <div class="onboard-sub">Add your LinkedIn credentials to start automating. We run each account in an isolated browser container for maximum safety.</div>
+      <div class="form-group"><label class="form-label">LinkedIn Email</label><input class="form-input" placeholder="you@email.com" type="email"></div>
+      <div class="form-group"><label class="form-label">LinkedIn Password</label><input class="form-input" placeholder="••••••••" type="password"></div>
+      <div style="background:var(--green-light);border:1px solid #A7F3D0;border-radius:8px;padding:12px 14px;font-size:12.5px;color:#065F46">🔐 <strong>AES-256 encrypted.</strong> Your credentials are never stored in plain text. We run your browser in a private Docker container — invisible to LinkedIn.</div>
+    </div>
+    <!-- Step 3 -->
+    <div class="onboard-body" id="ob3" style="display:none">
+      <div class="onboard-icon">👥</div>
+      <div class="onboard-title">Upload Your Lead List</div>
+      <div class="onboard-sub">Drop a CSV of LinkedIn profile URLs and we'll handle the rest. We recommend starting with 50–200 leads for your first campaign.</div>
+      <div class="upload-zone" onclick="document.getElementById('csvInput').click()">
+        <div class="upload-icon">📄</div>
+        <div style="font-size:14px;font-weight:700;color:var(--fg);margin-bottom:4px">Drop your CSV here</div>
+        <div style="font-size:12px;color:var(--fg2)">or click to browse — needs a <code>linkedin_url</code> column</div>
+        <input type="file" id="csvInput" accept=".csv" style="display:none">
+      </div>
+      <div class="form-hint" style="margin-top:10px">💡 Not ready? Skip and add leads later in Lead Lists.</div>
+    </div>
+    <!-- Step 4 -->
+    <div class="onboard-body" id="ob4" style="display:none">
+      <div class="onboard-icon">🎯</div>
+      <div class="onboard-title">You're all set!</div>
+      <div class="onboard-sub">Reachly will send up to <strong>10 connections/day</strong> with random timing — the safest strategy that's indistinguishable from human activity.</div>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <div style="display:flex;align-items:center;gap:10px;padding:12px;background:var(--bg);border-radius:8px;font-size:13px">✅ <span>LinkedIn account connected & secured</span></div>
+        <div style="display:flex;align-items:center;gap:10px;padding:12px;background:var(--bg);border-radius:8px;font-size:13px">✅ <span>Daily limit set to 10 connections (recommended)</span></div>
+        <div style="display:flex;align-items:center;gap:10px;padding:12px;background:var(--bg);border-radius:8px;font-size:13px">✅ <span>Random timing enabled (8am–8pm your timezone)</span></div>
+        <div style="display:flex;align-items:center;gap:10px;padding:12px;background:var(--bg);border-radius:8px;font-size:13px">⏳ <span>Lead list upload pending — add later</span></div>
+      </div>
+    </div>
+    <div class="onboard-footer">
+      <button class="btn btn-outline btn-sm" onclick="prevStep()">← Back</button>
+      <button class="btn btn-primary" id="obNextBtn" onclick="nextStep()">Continue →</button>
+    </div>
+  </div>
+</div>
+
+<!-- SIDEBAR -->
+<nav class="sidebar" id="sidebar">
+  <div class="sidebar-logo">
+    <div class="logo-mark">R</div>
+    <div class="logo-name">Reach<span>ly</span></div>
+  </div>
+  <div class="sidebar-nav">
+    <div class="nav-label">Main</div>
+    <div class="nav-item active" onclick="navigate('dashboard',this)">
+      <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>
+      Dashboard
+    </div>
+    <div class="nav-item" onclick="navigate('campaigns',this)">
+      <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M15 3H9a2 2 0 00-2 2v14a2 2 0 002 2h6a2 2 0 002-2V5a2 2 0 00-2-2z"/><path d="M9 7h6M9 11h6M9 15h4"/></svg>
+      Campaigns
+    </div>
+    <div class="nav-item" onclick="navigate('leads',this)">
+      <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
+      Lead Lists
+    </div>
+    <div class="nav-item" onclick="navigate('unibox',this)">
+      <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+      Unibox
+      <span class="nav-badge">5</span>
+    </div>
+    <div class="nav-label" style="margin-top:12px">Account</div>
+    <div class="nav-item" onclick="navigate('accounts',this)">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>
+      LinkedIn Accounts
+    </div>
+    <div class="nav-item" onclick="navigate('analytics',this)">
+      <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+      Analytics
+    </div>
+    <div class="nav-item" onclick="navigate('settings',this)">
+      <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+      Settings
+    </div>
+  </div>
+  <div class="sidebar-footer">
+    <div style="padding:0 10px 10px">
+      <button onclick="toggleEmptyMode()" id="emptyToggleBtn" style="width:100%;padding:8px;border-radius:8px;border:1px dashed var(--border);background:transparent;color:var(--fg2);font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;transition:.15s" onmouseenter="this.style.background='var(--bg)'" onmouseleave="this.style.background='transparent'">
+        👁 Preview: <span id="emptyToggleLabel">Populated</span>
+      </button>
+    </div>
+    <div class="workspace-pill">
+      <div class="ws-avatar">iD</div>
+      <div class="ws-info">
+        <div class="ws-name">iDesign.Market</div>
+        <div class="ws-plan">Starter Plan · $20/mo</div>
+      </div>
+    </div>
+  </div>
+</nav>
+
+<!-- MAIN CONTENT -->
+<main class="main">
+
+<!-- ═══════════════════════ DASHBOARD ═══════════════════════ -->
+<div data-screen="dashboard" class="active">
+  <div class="header">
+    <div><div class="header-title">Dashboard</div><div class="header-sub">Good morning, Ashish 👋 — Week 3 of your campaign is running smoothly.</div></div>
+    <button class="btn btn-primary" onclick="openModal('newCampaignModal')">＋ New Campaign</button>
+  </div>
+  <div class="content">
+    <div class="safety-banner">
+      <div class="safety-banner-icon">🛡️</div>
+      <div class="safety-banner-text"><strong>Safe mode active.</strong> Sending 10 connections/day with randomized timing. Your account has been running for 14 days with 0 warnings.</div>
+      <button class="btn btn-outline btn-sm" style="flex-shrink:0">View Safety Log</button>
+    </div>
+
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-icon" style="background:#EEF2FF">🔗</div>
+        <div class="stat-val">384</div>
+        <div class="stat-label">Total Connections Sent</div>
+        <div class="stat-delta delta-up">↑ 12% vs last week</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon" style="background:#ECFDF5">✅</div>
+        <div class="stat-val">142</div>
+        <div class="stat-label">Accepted</div>
+        <div class="stat-delta"><span style="color:var(--fg2)">37% acceptance rate</span></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon" style="background:#FEF3C7">💬</div>
+        <div class="stat-val">31</div>
+        <div class="stat-label">Replies Received</div>
+        <div class="stat-delta delta-up">↑ 22% vs last week</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon" style="background:#F0FDF4">📅</div>
+        <div class="stat-val">8</div>
+        <div class="stat-label">Meetings Booked</div>
+        <div class="stat-delta delta-up">↑ 3 this week</div>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:2fr 1fr;gap:20px;margin-bottom:20px">
+      <div class="card">
+        <div class="card-header"><div class="card-title">Outreach Activity</div>
+          <div style="margin-left:auto;display:flex;gap:6px">
+            <span class="chip active">7D</span><span class="chip">30D</span><span class="chip">All</span>
+          </div>
+        </div>
+        <div class="card-body"><canvas id="activityChart" height="180"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-header"><div class="card-title">Funnel</div></div>
+        <div class="card-body">
+          <div style="display:flex;flex-direction:column;gap:14px">
+            <div>
+              <div class="flex-between mb-4"><span class="text-sm color-muted">Sent</span><span class="text-sm fw-700">384</span></div>
+              <div class="prog-wrap"><div class="prog-bar" style="width:100%;background:var(--primary)"></div></div>
+            </div>
+            <div>
+              <div class="flex-between mb-4"><span class="text-sm color-muted">Accepted</span><span class="text-sm fw-700">142 (37%)</span></div>
+              <div class="prog-wrap"><div class="prog-bar" style="width:37%;background:var(--green)"></div></div>
+            </div>
+            <div>
+              <div class="flex-between mb-4"><span class="text-sm color-muted">Msg 1 Sent</span><span class="text-sm fw-700">131 (92%)</span></div>
+              <div class="prog-wrap"><div class="prog-bar" style="width:34%;background:var(--blue)"></div></div>
+            </div>
+            <div>
+              <div class="flex-between mb-4"><span class="text-sm color-muted">Replied</span><span class="text-sm fw-700">31 (24%)</span></div>
+              <div class="prog-wrap"><div class="prog-bar" style="width:8%;background:var(--amber)"></div></div>
+            </div>
+            <div>
+              <div class="flex-between mb-4"><span class="text-sm color-muted">Meetings</span><span class="text-sm fw-700">8 (26%)</span></div>
+              <div class="prog-wrap"><div class="prog-bar" style="width:2%;background:#F43F5E"></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">Active Campaigns</div>
+        <button class="btn btn-outline btn-sm" style="margin-left:auto" onclick="navigate('campaigns',null)">View all</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Campaign</th><th>Status</th><th>Progress</th><th>Sent</th><th>Accepted</th><th>Replies</th><th>Meetings</th><th></th></tr></thead>
+          <tbody>
+            <tr onclick="navigate('campaignDetail',null)">
+              <td><div class="td-main">SaaS Founders India</div><div class="td-sub">Ashish D. · 200 leads</div></td>
+              <td><span class="badge badge-green">● Active</span></td>
+              <td><div class="prog-wrap" style="width:120px"><div class="prog-bar" style="width:72%;background:var(--primary)"></div></div><div class="text-xs color-muted mt-1">144/200</div></td>
+              <td class="fw-700">144</td><td>52 <span class="text-xs color-muted">(36%)</span></td><td>14</td><td>4</td>
+              <td><div class="dropdown"><button class="dots-btn" onclick="toggleDD('dd1',event)">•••</button><div class="dropdown-menu" id="dd1"><div class="dd-item" onclick="openModal('campaignDetailModal')">📊 View Stats</div><div class="dd-item">⏸ Pause</div><div class="dd-sep"></div><div class="dd-item danger">🗑 Delete</div></div></div></td>
+            </tr>
+            <tr>
+              <td><div class="td-main">AEC Decision Makers</div><div class="td-sub">Ashish D. · 350 leads</div></td>
+              <td><span class="badge badge-green">● Active</span></td>
+              <td><div class="prog-wrap" style="width:120px"><div class="prog-bar" style="width:45%;background:var(--primary)"></div></div><div class="text-xs color-muted mt-1">157/350</div></td>
+              <td class="fw-700">157</td><td>61 <span class="text-xs color-muted">(39%)</span></td><td>12</td><td>3</td>
+              <td><div class="dropdown"><button class="dots-btn" onclick="toggleDD('dd2',event)">•••</button><div class="dropdown-menu" id="dd2"><div class="dd-item">📊 View Stats</div><div class="dd-item">⏸ Pause</div><div class="dd-sep"></div><div class="dd-item danger">🗑 Delete</div></div></div></td>
+            </tr>
+            <tr>
+              <td><div class="td-main">Interior Design Studio Owners</div><div class="td-sub">Ashish D. · 180 leads</div></td>
+              <td><span class="badge badge-amber">⏸ Paused</span></td>
+              <td><div class="prog-wrap" style="width:120px"><div class="prog-bar" style="width:100%;background:var(--green)"></div></div><div class="text-xs color-muted mt-1">180/180</div></td>
+              <td class="fw-700">180</td><td>69 <span class="text-xs color-muted">(38%)</span></td><td>18</td><td>5</td>
+              <td><div class="dropdown"><button class="dots-btn" onclick="toggleDD('dd3',event)">•••</button><div class="dropdown-menu" id="dd3"><div class="dd-item">📊 View Stats</div><div class="dd-item">▶ Resume</div><div class="dd-sep"></div><div class="dd-item danger">🗑 Delete</div></div></div></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════ CAMPAIGNS ═══════════════════════ -->
+<div data-screen="campaigns">
+  <div class="header">
+    <div><div class="header-title">Campaigns</div><div class="header-sub">3 active · 1 draft · 1 completed</div></div>
+    <button class="btn btn-primary" onclick="openModal('newCampaignModal')">＋ New Campaign</button>
+  </div>
+  <div class="content">
+    <div class="flex-between mb-20">
+      <div class="tabs" style="margin-bottom:0;border-bottom:none">
+        <div class="tab active">All <span class="tab-count">5</span></div>
+        <div class="tab">Active <span class="tab-count">3</span></div>
+        <div class="tab">Draft <span class="tab-count">1</span></div>
+        <div class="tab">Completed <span class="tab-count">1</span></div>
+      </div>
+      <div class="search-input">
+        <svg width="14" height="14" fill="none" stroke="var(--fg3)" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+        <input placeholder="Search campaigns…">
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div class="campaign-card" onclick="navigate('campaignDetail',null)" style="cursor:pointer">
+        <div class="dots-btn" onclick="toggleDD('cdd1',event);event.stopPropagation()" style="position:absolute;top:12px;right:12px">•••</div>
+        <div class="dropdown-menu" id="cdd1" style="top:40px"><div class="dd-item">✏️ Edit</div><div class="dd-item">⏸ Pause</div><div class="dd-item">📋 Duplicate</div><div class="dd-sep"></div><div class="dd-item danger">🗑 Delete</div></div>
+        <div class="flex-between"><span class="badge badge-green">● Active</span><span class="text-xs color-muted">Started Oct 8</span></div>
+        <div>
+          <div style="font-size:15px;font-weight:700;color:var(--fg);margin-bottom:4px">SaaS Founders India</div>
+          <div class="text-xs color-muted">200 leads · Ashish Dhingra account · 3-step sequence</div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;border-top:1px solid var(--border);padding-top:14px">
+          <div class="acct-stat"><div class="acct-stat-val">144</div><div class="acct-stat-label">Sent</div></div>
+          <div class="acct-stat"><div class="acct-stat-val color-green">52</div><div class="acct-stat-label">Accepted</div></div>
+          <div class="acct-stat"><div class="acct-stat-val color-amber">14</div><div class="acct-stat-label">Replies</div></div>
+          <div class="acct-stat"><div class="acct-stat-val color-primary">4</div><div class="acct-stat-label">Meetings</div></div>
+        </div>
+        <div>
+          <div class="flex-between mb-4"><span class="text-xs color-muted">Progress</span><span class="text-xs fw-700">144/200</span></div>
+          <div class="prog-wrap"><div class="prog-bar" style="width:72%;background:var(--primary)"></div></div>
+        </div>
+      </div>
+
+      <div class="campaign-card">
+        <div class="dots-btn" onclick="toggleDD('cdd2',event)" style="position:absolute;top:12px;right:12px">•••</div>
+        <div class="dropdown-menu" id="cdd2" style="top:40px"><div class="dd-item">✏️ Edit</div><div class="dd-item">⏸ Pause</div><div class="dd-item">📋 Duplicate</div><div class="dd-sep"></div><div class="dd-item danger">🗑 Delete</div></div>
+        <div class="flex-between"><span class="badge badge-green">● Active</span><span class="text-xs color-muted">Started Oct 12</span></div>
+        <div>
+          <div style="font-size:15px;font-weight:700;color:var(--fg);margin-bottom:4px">AEC Decision Makers</div>
+          <div class="text-xs color-muted">350 leads · Ashish Dhingra account · 2-step sequence</div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;border-top:1px solid var(--border);padding-top:14px">
+          <div class="acct-stat"><div class="acct-stat-val">157</div><div class="acct-stat-label">Sent</div></div>
+          <div class="acct-stat"><div class="acct-stat-val color-green">61</div><div class="acct-stat-label">Accepted</div></div>
+          <div class="acct-stat"><div class="acct-stat-val color-amber">12</div><div class="acct-stat-label">Replies</div></div>
+          <div class="acct-stat"><div class="acct-stat-val color-primary">3</div><div class="acct-stat-label">Meetings</div></div>
+        </div>
+        <div>
+          <div class="flex-between mb-4"><span class="text-xs color-muted">Progress</span><span class="text-xs fw-700">157/350</span></div>
+          <div class="prog-wrap"><div class="prog-bar" style="width:45%;background:var(--primary)"></div></div>
+        </div>
+      </div>
+
+      <div class="campaign-card">
+        <div class="dots-btn" onclick="toggleDD('cdd3',event)" style="position:absolute;top:12px;right:12px">•••</div>
+        <div class="dropdown-menu" id="cdd3" style="top:40px"><div class="dd-item">✏️ Edit</div><div class="dd-item">▶ Resume</div><div class="dd-item">📋 Duplicate</div><div class="dd-sep"></div><div class="dd-item danger">🗑 Delete</div></div>
+        <div class="flex-between"><span class="badge badge-amber">⏸ Paused</span><span class="text-xs color-muted">Started Sep 20</span></div>
+        <div>
+          <div style="font-size:15px;font-weight:700;color:var(--fg);margin-bottom:4px">Interior Design Studio Owners</div>
+          <div class="text-xs color-muted">180 leads · Ashish Dhingra account · 3-step sequence</div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;border-top:1px solid var(--border);padding-top:14px">
+          <div class="acct-stat"><div class="acct-stat-val">180</div><div class="acct-stat-label">Sent</div></div>
+          <div class="acct-stat"><div class="acct-stat-val color-green">69</div><div class="acct-stat-label">Accepted</div></div>
+          <div class="acct-stat"><div class="acct-stat-val color-amber">18</div><div class="acct-stat-label">Replies</div></div>
+          <div class="acct-stat"><div class="acct-stat-val color-primary">5</div><div class="acct-stat-label">Meetings</div></div>
+        </div>
+        <div>
+          <div class="flex-between mb-4"><span class="text-xs color-muted">Progress</span><span class="text-xs fw-700 color-green">Complete</span></div>
+          <div class="prog-wrap"><div class="prog-bar" style="width:100%;background:var(--green)"></div></div>
+        </div>
+      </div>
+
+      <div class="campaign-card" style="border:2px dashed var(--border);box-shadow:none;cursor:pointer;align-items:center;justify-content:center;min-height:200px" onclick="openModal('newCampaignModal')">
+        <div style="text-align:center;color:var(--fg2)">
+          <div style="font-size:36px;margin-bottom:8px">＋</div>
+          <div style="font-size:13px;font-weight:600">Create New Campaign</div>
+          <div style="font-size:12px;color:var(--fg3);margin-top:4px">Set up your outreach sequence</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════ CAMPAIGN DETAIL ═══════════════════════ -->
+<div data-screen="campaignDetail">
+  <div class="header">
+    <button class="btn btn-ghost btn-sm" onclick="navigate('campaigns',null)" style="margin-right:4px">← Back</button>
+    <div><div class="header-title">SaaS Founders India</div><div class="header-sub">200 leads · Started Oct 8, 2026</div></div>
+    <div style="display:flex;gap:8px;margin-left:auto">
+      <button class="btn btn-outline btn-sm">⏸ Pause</button>
+      <button class="btn btn-primary btn-sm">✏️ Edit Sequence</button>
+    </div>
+  </div>
+  <div class="content">
+    <div class="stats-grid mb-24">
+      <div class="stat-card"><div class="stat-icon" style="background:#EEF2FF">📤</div><div class="stat-val">144</div><div class="stat-label">Requests Sent</div></div>
+      <div class="stat-card"><div class="stat-icon" style="background:#ECFDF5">🤝</div><div class="stat-val">52</div><div class="stat-label">Accepted (36%)</div></div>
+      <div class="stat-card"><div class="stat-icon" style="background:#FEF3C7">💬</div><div class="stat-val">14</div><div class="stat-label">Replied (27%)</div></div>
+      <div class="stat-card"><div class="stat-icon" style="background:#F5F3FF">🗓</div><div class="stat-val">4</div><div class="stat-label">Meetings Booked</div></div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px">
+      <div class="card">
+        <div class="card-header"><div class="card-title">Activity (Last 14 days)</div></div>
+        <div class="card-body"><canvas id="detailChart" height="160"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-header"><div class="card-title">Message Sequence</div></div>
+        <div class="card-body">
+          <div class="sequence-step">
+            <div class="step-num">1</div>
+            <div class="step-body">
+              <div class="step-label">Connection Request (Day 0)</div>
+              <div class="step-text">Hi {{first_name}}, I noticed your work in the SaaS space and would love to connect. Building something in the AEC/PropTech intersection — would value your perspective.</div>
+            </div>
+          </div>
+          <div class="sequence-step">
+            <div class="step-num">2</div>
+            <div class="step-body">
+              <div class="step-label">Follow-up Message (Day 3 after accept)</div>
+              <div class="step-text">Thanks for connecting, {{first_name}}! Quick context — I'm building iDesign.Market, an ERP for interior designers. Curious what tools your teams use for project ops?</div>
+            </div>
+          </div>
+          <div class="sequence-step">
+            <div class="step-num">3</div>
+            <div class="step-body">
+              <div class="step-label">Value Message (Day 7)</div>
+              <div class="step-text">Sharing a quick case study — reduced a 50-person design firm's billing time by 80% with automated BOQ + invoicing. Happy to share more if relevant to you!</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">Leads</div>
+        <div style="margin-left:auto;display:flex;gap:8px">
+          <div class="search-input" style="max-width:220px"><svg width="12" height="12" fill="none" stroke="var(--fg3)" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg><input placeholder="Search leads…"></div>
+          <select class="form-input form-select" style="width:160px;padding:7px 12px">
+            <option>All statuses</option><option>Pending</option><option>Sent</option><option>Accepted</option><option>Replied</option>
+          </select>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Name</th><th>Company</th><th>Title</th><th>Status</th><th>Last Activity</th><th></th></tr></thead>
+          <tbody id="leadsTableBody">
+            <tr>
+              <td><div class="flex-center gap-8"><div class="avatar avatar-sm">RK</div><div class="td-main">Rohan Kapoor</div></div></td>
+              <td>ZoomInfo</td><td>Head of Sales</td>
+              <td><span class="badge badge-blue">💬 Replied</span></td>
+              <td class="text-xs color-muted">2h ago</td>
+              <td><button class="btn btn-ghost btn-sm" onclick="navigate('unibox',null)">View Thread →</button></td>
+            </tr>
+            <tr>
+              <td><div class="flex-center gap-8"><div class="avatar avatar-sm" style="background:#10B981">PS</div><div class="td-main">Priya Sharma</div></div></td>
+              <td>Notion</td><td>Product Manager</td>
+              <td><span class="badge badge-green">✅ Accepted</span></td>
+              <td class="text-xs color-muted">1d ago</td>
+              <td><div class="dropdown"><button class="dots-btn" onclick="toggleDD('ldd1',event)">•••</button><div class="dropdown-menu" id="ldd1"><div class="dd-item">💬 Send Message</div><div class="dd-item">👤 View Profile</div><div class="dd-sep"></div><div class="dd-item danger">⛔ Blacklist</div></div></div></td>
+            </tr>
+            <tr>
+              <td><div class="flex-center gap-8"><div class="avatar avatar-sm" style="background:#F59E0B">AV</div><div class="td-main">Amit Verma</div></div></td>
+              <td>Freshworks</td><td>Growth Lead</td>
+              <td><span class="badge badge-indigo">📤 Request Sent</span></td>
+              <td class="text-xs color-muted">3d ago</td>
+              <td></td>
+            </tr>
+            <tr>
+              <td><div class="flex-center gap-8"><div class="avatar avatar-sm" style="background:#EF4444">SN</div><div class="td-main">Sneha Nair</div></div></td>
+              <td>Meesho</td><td>CEO</td>
+              <td><span class="badge badge-gray">⏳ Pending</span></td>
+              <td class="text-xs color-muted">—</td>
+              <td></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════ LEAD LISTS ═══════════════════════ -->
+<div data-screen="leads">
+  <div class="header">
+    <div><div class="header-title">Lead Lists</div><div class="header-sub">4 lists · 930 total leads</div></div>
+    <button class="btn btn-primary" onclick="openModal('uploadLeadsModal')">＋ Upload CSV</button>
+  </div>
+  <div class="content">
+    <div class="grid-3 mb-24">
+      <div class="card" style="cursor:pointer" onclick="openModal('leadDetailModal')">
+        <div class="card-body">
+          <div class="flex-between mb-16">
+            <div style="font-size:18px">👥</div>
+            <div class="dropdown"><button class="dots-btn" onclick="toggleDD('listdd1',event)">•••</button><div class="dropdown-menu" id="listdd1"><div class="dd-item">📥 Download CSV</div><div class="dd-item">✏️ Rename</div><div class="dd-sep"></div><div class="dd-item danger">🗑 Delete List</div></div></div>
+          </div>
+          <div style="font-size:15px;font-weight:700;margin-bottom:4px">SaaS Founders India</div>
+          <div class="text-xs color-muted mb-16">Uploaded Oct 8 · 200 leads</div>
+          <div class="flex-between text-xs">
+            <div><span class="color-green fw-700">52</span> <span class="color-muted">connected</span></div>
+            <div><span class="color-amber fw-700">144</span> <span class="color-muted">pending</span></div>
+            <div><span class="color-primary fw-700">4</span> <span class="color-muted">replied</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="card" style="cursor:pointer">
+        <div class="card-body">
+          <div class="flex-between mb-16">
+            <div style="font-size:18px">🏗️</div>
+            <div class="dropdown"><button class="dots-btn" onclick="toggleDD('listdd2',event)">•••</button><div class="dropdown-menu" id="listdd2"><div class="dd-item">📥 Download CSV</div><div class="dd-item">✏️ Rename</div><div class="dd-sep"></div><div class="dd-item danger">🗑 Delete List</div></div></div>
+          </div>
+          <div style="font-size:15px;font-weight:700;margin-bottom:4px">AEC Decision Makers</div>
+          <div class="text-xs color-muted mb-16">Uploaded Oct 12 · 350 leads</div>
+          <div class="flex-between text-xs">
+            <div><span class="color-green fw-700">61</span> <span class="color-muted">connected</span></div>
+            <div><span class="color-amber fw-700">157</span> <span class="color-muted">pending</span></div>
+            <div><span class="color-primary fw-700">3</span> <span class="color-muted">replied</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="card" style="border:2px dashed var(--border);box-shadow:none;cursor:pointer" onclick="openModal('uploadLeadsModal')">
+        <div class="card-body" style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:130px;gap:8px">
+          <div style="font-size:30px">📤</div>
+          <div style="font-size:13px;font-weight:600;color:var(--fg2)">Upload New List</div>
+          <div style="font-size:11.5px;color:var(--fg3)">CSV with linkedin_url column</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════ LINKEDIN ACCOUNTS ═══════════════════════ -->
+<div data-screen="accounts">
+  <div class="header">
+    <div><div class="header-title">LinkedIn Accounts</div><div class="header-sub">1 active account · 10 connections/day</div></div>
+    <button class="btn btn-primary" onclick="openModal('addAccountModal')">＋ Add Account</button>
+  </div>
+  <div class="content">
+    <div class="safety-banner">
+      <div class="safety-banner-icon">🔐</div>
+      <div class="safety-banner-text"><strong>Each account runs in its own isolated Docker container.</strong> Credentials are AES-256 encrypted. We never store plain-text passwords.</div>
+    </div>
+
+    <div class="grid-2">
+      <div class="account-card">
+        <div class="dropdown" style="position:absolute;top:12px;right:12px"><button class="dots-btn" onclick="toggleDD('accdd1',event)">•••</button><div class="dropdown-menu" id="accdd1"><div class="dd-item">⚙️ Settings</div><div class="dd-item">🔄 Reconnect</div><div class="dd-item">📊 View Activity</div><div class="dd-sep"></div><div class="dd-item danger">🔌 Disconnect</div></div></div>
+        <div class="account-status-bar">
+          <div class="account-info">
+            <div class="li-avatar">A</div>
+            <div>
+              <div class="account-name">Ashish Dhingra</div>
+              <div class="account-title">Founder & CEO at iDesign.Market</div>
+            </div>
+          </div>
+          <span class="badge badge-green">● Connected</span>
+        </div>
+        <div style="font-size:12px;color:var(--fg2)">ashish@idesign.market · Added Oct 8, 2026</div>
+        <div>
+          <div class="flex-between mb-4"><span class="text-xs color-muted">Daily limit (10 max)</span><span class="text-xs fw-700">10/10</span></div>
+          <div class="prog-wrap"><div class="prog-bar" style="width:100%;background:var(--primary)"></div></div>
+        </div>
+        <div class="account-stats">
+          <div class="acct-stat"><div class="acct-stat-val">384</div><div class="acct-stat-label">Total Sent</div></div>
+          <div class="acct-stat"><div class="acct-stat-val">142</div><div class="acct-stat-label">Accepted</div></div>
+          <div class="acct-stat"><div class="acct-stat-val color-green">0</div><div class="acct-stat-label">Warnings</div></div>
+        </div>
+        <div style="display:flex;align-items:center;justify-content:space-between;font-size:12.5px">
+          <span class="color-muted">Container status</span>
+          <div style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;background:var(--green);border-radius:50%;display:inline-block"></span><span class="fw-700 color-green">Running · Port 3847</span></div>
+        </div>
+      </div>
+
+      <div class="account-card" style="border:2px dashed var(--border);box-shadow:none;cursor:pointer;align-items:center;justify-content:center;min-height:200px" onclick="openModal('addAccountModal')">
+        <div style="text-align:center;color:var(--fg2)">
+          <div style="font-size:36px;margin-bottom:8px">＋</div>
+          <div style="font-size:13px;font-weight:600">Add LinkedIn Account</div>
+          <div style="font-size:12px;color:var(--fg3);margin-top:4px">Each account = 10 more connections/day</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════ UNIBOX ═══════════════════════ -->
+<div data-screen="unibox">
+  <div class="header">
+    <div><div class="header-title">Unibox</div><div class="header-sub">All LinkedIn replies in one place</div></div>
+    <div style="display:flex;gap:8px;margin-left:auto">
+      <select class="form-input form-select btn-sm" style="width:160px">
+        <option>All Accounts</option><option>Ashish Dhingra</option>
+      </select>
+      <select class="form-input form-select btn-sm" style="width:140px">
+        <option>All Campaigns</option><option>SaaS Founders</option>
+      </select>
+    </div>
+  </div>
+  <div class="content" style="padding-bottom:0">
+    <div class="unibox-wrap">
+      <div class="convo-list">
+        <div class="convo-search">
+          <div class="search-input" style="max-width:100%"><svg width="12" height="12" fill="none" stroke="var(--fg3)" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg><input placeholder="Search conversations…"></div>
+        </div>
+        <div class="convo-item unread active">
+          <div class="avatar avatar-sm">RK</div>
+          <div class="convo-meta">
+            <div class="flex-between"><div class="convo-name">Rohan Kapoor</div><div class="convo-time">2h</div></div>
+            <div class="convo-preview">That sounds really interesting! I'd love to learn more about the…</div>
+          </div>
+          <div class="unread-dot"></div>
+        </div>
+        <div class="convo-item">
+          <div class="avatar avatar-sm" style="background:#10B981">PS</div>
+          <div class="convo-meta">
+            <div class="flex-between"><div class="convo-name">Priya Sharma</div><div class="convo-time">1d</div></div>
+            <div class="convo-preview">Hey Ashish, thanks for connecting. Yes I'm familiar with AEC…</div>
+          </div>
+        </div>
+        <div class="convo-item unread">
+          <div class="avatar avatar-sm" style="background:#F59E0B">VR</div>
+          <div class="convo-meta">
+            <div class="flex-between"><div class="convo-name">Vikram Rao</div><div class="convo-time">2d</div></div>
+            <div class="convo-preview">We actually use something similar but it's not integrated…</div>
+          </div>
+          <div class="unread-dot"></div>
+        </div>
+        <div class="convo-item">
+          <div class="avatar avatar-sm" style="background:#6366F1">MG</div>
+          <div class="convo-meta">
+            <div class="flex-between"><div class="convo-name">Meera Gupta</div><div class="convo-time">3d</div></div>
+            <div class="convo-preview">Would love a demo. Can we do Friday at 3pm?</div>
+          </div>
+        </div>
+        <div class="convo-item">
+          <div class="avatar avatar-sm" style="background:#EF4444">KS</div>
+          <div class="convo-meta">
+            <div class="flex-between"><div class="convo-name">Karan Singh</div><div class="convo-time">4d</div></div>
+            <div class="convo-preview">Not really the right fit for us right now, but will keep in…</div>
+          </div>
+        </div>
+      </div>
+      <div class="chat-panel">
+        <div class="chat-header">
+          <div class="avatar">RK</div>
+          <div>
+            <div style="font-size:14px;font-weight:700">Rohan Kapoor</div>
+            <div class="text-xs color-muted">Head of Sales · ZoomInfo · SaaS Founders India campaign</div>
+          </div>
+          <div style="margin-left:auto;display:flex;gap:8px">
+            <button class="btn btn-outline btn-sm">👤 View Profile</button>
+            <button class="btn btn-primary btn-sm">🗓 Book Meeting</button>
+          </div>
+        </div>
+        <div class="chat-messages">
+          <div style="text-center;font-size:11px;color:var(--fg3);text-align:center;padding:8px">Oct 8, 2026 · Connection request sent</div>
+          <div class="msg-bubble sent">Hi Rohan, I noticed your work in the SaaS space and would love to connect. Building something in the AEC/PropTech intersection — would value your perspective.<div class="msg-time">Oct 8</div></div>
+          <div style="text-center;font-size:11px;color:var(--fg3);text-align:center;padding:8px">Oct 11, 2026 · Connection accepted · Follow-up message sent</div>
+          <div class="msg-bubble sent">Thanks for connecting, Rohan! Quick context — I'm building iDesign.Market, an ERP for interior designers. Curious what tools your teams use for project ops?<div class="msg-time">Oct 11</div></div>
+          <div class="msg-bubble recv">That sounds really interesting! I'd love to learn more about the product. We actually work with a few architecture firms and they're always complaining about project management.<div class="msg-time recv">Oct 11</div></div>
+          <div class="msg-bubble sent">Great! Would you be open to a 20-min demo next week? Happy to show you how we cut invoicing time by 80% for a 50-person design firm.<div class="msg-time">Oct 12</div></div>
+          <div class="msg-bubble recv">Absolutely, send me a Calendly link!<div class="msg-time recv">2h ago</div></div>
+        </div>
+        <div class="chat-compose">
+          <textarea rows="2" placeholder="Type a message… use {{first_name}} for personalization"></textarea>
+          <button class="btn btn-primary">Send</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════ ANALYTICS ═══════════════════════ -->
+<div data-screen="analytics">
+  <div class="header">
+    <div><div class="header-title">Analytics</div><div class="header-sub">Performance insights across all campaigns</div></div>
+    <select class="form-input form-select btn-sm" style="width:140px">
+      <option>Last 30 days</option><option>Last 7 days</option><option>All time</option>
+    </select>
+  </div>
+  <div class="content">
+    <div class="stats-grid mb-24">
+      <div class="stat-card"><div class="stat-icon" style="background:#EEF2FF">📤</div><div class="stat-val">481</div><div class="stat-label">Total Sent (30d)</div><div class="stat-delta delta-up">↑ 18%</div></div>
+      <div class="stat-card"><div class="stat-icon" style="background:#ECFDF5">🤝</div><div class="stat-val">38%</div><div class="stat-label">Avg Acceptance Rate</div><div class="stat-delta delta-up">↑ 3pts</div></div>
+      <div class="stat-card"><div class="stat-icon" style="background:#FEF3C7">💬</div><div class="stat-val">24%</div><div class="stat-label">Avg Reply Rate</div><div class="stat-delta delta-up">↑ 5pts</div></div>
+      <div class="stat-card"><div class="stat-icon" style="background:#F5F3FF">🎯</div><div class="stat-val">26%</div><div class="stat-label">Reply → Meeting Rate</div><div class="stat-delta delta-up">↑ 8pts</div></div>
+    </div>
+
+    <div class="grid-2 mb-20">
+      <div class="card">
+        <div class="card-header"><div class="card-title">Best Days to Send</div></div>
+        <div class="card-body"><canvas id="daysChart" height="180"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-header"><div class="card-title">Reply Rate by Message Step</div></div>
+        <div class="card-body"><canvas id="stepsChart" height="180"></canvas></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><div class="card-title">Campaign Comparison</div></div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Campaign</th><th>Sent</th><th>Accept Rate</th><th>Reply Rate</th><th>Meetings</th><th>Best Message</th></tr></thead>
+          <tbody>
+            <tr><td class="td-main">SaaS Founders India</td><td>144</td><td><span class="color-green fw-700">36%</span></td><td>27%</td><td>4</td><td><span class="badge badge-indigo">Msg 2</span></td></tr>
+            <tr><td class="td-main">AEC Decision Makers</td><td>157</td><td><span class="color-green fw-700">39%</span></td><td>20%</td><td>3</td><td><span class="badge badge-indigo">Msg 1</span></td></tr>
+            <tr><td class="td-main">Interior Design Studios</td><td>180</td><td><span class="color-green fw-700">38%</span></td><td>26%</td><td>5</td><td><span class="badge badge-indigo">Msg 2</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════ SETTINGS ═══════════════════════ -->
+<div data-screen="settings">
+  <div class="header">
+    <div><div class="header-title">Settings</div><div class="header-sub">Manage your workspace and preferences</div></div>
+  </div>
+  <div class="content">
+    <div class="settings-wrap">
+      <div class="settings-nav">
+        <div class="settings-nav-item active" onclick="switchSettings('sProfile',this)">👤 Profile</div>
+        <div class="settings-nav-item" onclick="switchSettings('sWorkspace',this)">🏢 Workspace</div>
+        <div class="settings-nav-item" onclick="switchSettings('sMembers',this)">👥 Members</div>
+        <div class="settings-nav-item" onclick="switchSettings('sBilling',this)">💳 Billing</div>
+        <div class="settings-nav-item" onclick="switchSettings('sIntegrations',this)">🔌 Integrations</div>
+        <div class="settings-nav-item" onclick="switchSettings('sBlacklist',this)">⛔ Blacklist</div>
+        <div class="settings-nav-item" onclick="switchSettings('sSafety',this)">🛡️ Safety</div>
+      </div>
+      <div>
+        <!-- Profile -->
+        <div class="settings-panel" id="sProfile">
+          <div class="card-header"><div class="card-title">Your Profile</div></div>
+          <div class="card-body">
+            <div style="display:flex;align-items:center;gap:16px;margin-bottom:24px;padding-bottom:24px;border-bottom:1px solid var(--border)">
+              <div class="avatar" style="width:60px;height:60px;font-size:22px">A</div>
+              <div>
+                <div style="font-size:15px;font-weight:700">Ashish Dhingra</div>
+                <div class="text-xs color-muted">ashish@idesign.market</div>
+              </div>
+              <button class="btn btn-outline btn-sm" style="margin-left:auto">Change Photo</button>
+            </div>
+            <div class="form-row">
+              <div class="form-group"><label class="form-label">First Name</label><input class="form-input" value="Ashish"></div>
+              <div class="form-group"><label class="form-label">Last Name</label><input class="form-input" value="Dhingra"></div>
+            </div>
+            <div class="form-group"><label class="form-label">Email</label><input class="form-input" value="ashish@idesign.market" type="email"></div>
+            <div class="form-group"><label class="form-label">Timezone</label>
+              <select class="form-input form-select"><option>Asia/Kolkata (IST, UTC+5:30)</option><option>Asia/Dubai</option><option>America/New_York</option></select>
+            </div>
+            <button class="btn btn-primary">Save Changes</button>
+          </div>
+        </div>
+        <!-- Workspace -->
+        <div class="settings-panel" id="sWorkspace" style="display:none">
+          <div class="card-header"><div class="card-title">Workspace Settings</div></div>
+          <div class="card-body">
+            <div class="form-group"><label class="form-label">Workspace Name</label><input class="form-input" value="iDesign.Market"></div>
+            <div class="form-group"><label class="form-label">Industry</label>
+              <select class="form-input form-select"><option>Architecture & Engineering</option><option>SaaS</option><option>Real Estate</option></select>
+            </div>
+            <div class="divider"></div>
+            <div class="flex-between mb-16"><div><div class="fw-700">Daily Connection Limit</div><div class="text-xs color-muted">Max connections per account per day (we recommend 10)</div></div><select class="form-input form-select btn-sm" style="width:90px"><option>10</option><option>8</option><option>6</option></select></div>
+            <div class="flex-between mb-16"><div><div class="fw-700">Sending Window</div><div class="text-xs color-muted">Only send during these hours (your timezone)</div></div><div style="display:flex;gap:8px"><input class="form-input btn-sm" value="08:00" style="width:90px"><input class="form-input btn-sm" value="20:00" style="width:90px"></div></div>
+            <div class="flex-between"><div><div class="fw-700">Weekends</div><div class="text-xs color-muted">Send on Saturdays and Sundays</div></div><div class="toggle" onclick="this.classList.toggle('on')"></div></div>
+            <div class="divider"></div>
+            <button class="btn btn-primary">Save</button>
+          </div>
+        </div>
+        <!-- Members -->
+        <div class="settings-panel" id="sMembers" style="display:none">
+          <div class="card-header"><div class="card-title">Team Members</div><button class="btn btn-primary btn-sm" style="margin-left:auto">＋ Invite Member</button></div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Member</th><th>Role</th><th>Status</th><th>Last Active</th><th></th></tr></thead>
+              <tbody>
+                <tr><td><div class="flex-center gap-8"><div class="avatar avatar-sm">A</div><div><div class="td-main">Ashish Dhingra</div><div class="td-sub">ashish@idesign.market</div></div></div></td><td><span class="badge badge-indigo">Owner</span></td><td><span class="badge badge-green">Active</span></td><td class="text-xs color-muted">Now</td><td></td></tr>
+                <tr><td><div class="flex-center gap-8"><div class="avatar avatar-sm" style="background:#10B981">R</div><div><div class="td-main">Rundan</div><div class="td-sub">rundan@idesign.market</div></div></div></td><td><span class="badge badge-gray">Member</span></td><td><span class="badge badge-green">Active</span></td><td class="text-xs color-muted">3h ago</td><td><div class="dropdown"><button class="dots-btn" onclick="toggleDD('mdd1',event)">•••</button><div class="dropdown-menu" id="mdd1"><div class="dd-item">✏️ Change Role</div><div class="dd-sep"></div><div class="dd-item danger">🚫 Remove</div></div></div></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <!-- Billing -->
+        <div class="settings-panel" id="sBilling" style="display:none">
+          <div class="card-header"><div class="card-title">Billing & Plan</div></div>
+          <div class="card-body">
+            <div style="background:linear-gradient(135deg,var(--primary),#818CF8);border-radius:12px;padding:24px;color:#fff;margin-bottom:24px">
+              <div style="font-size:12px;opacity:.8;margin-bottom:4px">Current Plan</div>
+              <div style="font-size:24px;font-weight:800;margin-bottom:4px">Starter <span style="opacity:.7;font-size:16px">· $20 / month</span></div>
+              <div style="font-size:13px;opacity:.9">1 LinkedIn account · Unlimited campaigns · 10/day limit</div>
+            </div>
+            <div class="grid-2 mb-24">
+              <div style="border:1px solid var(--border);border-radius:10px;padding:20px">
+                <div style="font-size:12px;color:var(--fg3);margin-bottom:4px">Next billing</div>
+                <div style="font-size:16px;font-weight:700">Nov 22, 2026</div>
+                <div style="font-size:12px;color:var(--fg2)">$20.00</div>
+              </div>
+              <div style="border:1px solid var(--border);border-radius:10px;padding:20px">
+                <div style="font-size:12px;color:var(--fg3);margin-bottom:4px">Payment method</div>
+                <div style="font-size:14px;font-weight:700">•••• •••• •••• 4242</div>
+                <div style="font-size:12px;color:var(--fg2)">Visa · Expires 09/28</div>
+              </div>
+            </div>
+            <div style="border:1px solid var(--border);border-radius:10px;overflow:hidden">
+              <div style="padding:14px 16px;background:var(--bg);font-size:12px;font-weight:700;color:var(--fg3);text-transform:uppercase;letter-spacing:.05em">Growth Plan · $49/mo</div>
+              <div style="padding:20px;display:flex;flex-direction:column;gap:8px;font-size:13px;color:var(--fg2)">
+                <div>✅ Up to 5 LinkedIn accounts</div>
+                <div>✅ 25 connections/day per account</div>
+                <div>✅ Team access (up to 10 members)</div>
+                <div>✅ API access + Webhooks</div>
+              </div>
+              <div style="padding:16px;border-top:1px solid var(--border)"><button class="btn btn-primary">Upgrade to Growth</button></div>
+            </div>
+          </div>
+        </div>
+        <!-- Integrations -->
+        <div class="settings-panel" id="sIntegrations" style="display:none">
+          <div class="card-header"><div class="card-title">Integrations</div></div>
+          <div class="card-body">
+            <div style="display:flex;flex-direction:column;gap:14px">
+              <div style="border:1px solid var(--border);border-radius:10px;padding:16px;display:flex;align-items:center;gap:14px">
+                <div style="font-size:28px">📊</div>
+                <div style="flex:1"><div style="font-weight:700;font-size:14px">HubSpot CRM</div><div style="font-size:12px;color:var(--fg2)">Push accepted leads and replies directly to HubSpot contacts</div></div>
+                <button class="btn btn-outline btn-sm">Connect</button>
+              </div>
+              <div style="border:1px solid var(--border);border-radius:10px;padding:16px;display:flex;align-items:center;gap:14px">
+                <div style="font-size:28px">📅</div>
+                <div style="flex:1"><div style="font-weight:700;font-size:14px">Calendly</div><div style="font-size:12px;color:var(--fg2)">Attach your booking link to follow-up messages automatically</div></div>
+                <span class="badge badge-green">Connected</span>
+              </div>
+              <div style="border:1px solid var(--border);border-radius:10px;padding:16px;display:flex;align-items:center;gap:14px">
+                <div style="font-size:28px">💬</div>
+                <div style="flex:1"><div style="font-weight:700;font-size:14px">Slack Notifications</div><div style="font-size:12px;color:var(--fg2)">Get notified when someone replies or accepts your connection</div></div>
+                <button class="btn btn-outline btn-sm">Connect</button>
+              </div>
+              <div style="border:1px solid var(--border);border-radius:10px;padding:16px;display:flex;align-items:center;gap:14px">
+                <div style="font-size:28px">🔗</div>
+                <div style="flex:1"><div style="font-weight:700;font-size:14px">Webhooks</div><div style="font-size:12px;color:var(--fg2)">Send real-time events to your own systems (Growth plan)</div></div>
+                <span class="badge badge-amber">Growth</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <!-- Blacklist -->
+        <div class="settings-panel" id="sBlacklist" style="display:none">
+          <div class="card-header"><div class="card-title">Blacklist</div><button class="btn btn-outline btn-sm" style="margin-left:auto">＋ Add Domain / Profile</button></div>
+          <div class="card-body">
+            <div class="form-hint" style="margin-bottom:16px">Blacklisted domains or LinkedIn profiles will never receive outreach from any campaign.</div>
+            <div style="display:flex;flex-direction:column;gap:8px">
+              <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;border:1px solid var(--border);border-radius:8px;font-size:13px">
+                <span style="flex:1">heyreach.io</span><span class="text-xs color-muted">Domain</span><button class="btn btn-ghost btn-sm" style="color:var(--red)">Remove</button>
+              </div>
+              <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;border:1px solid var(--border);border-radius:8px;font-size:13px">
+                <span style="flex:1">linkedin.com/in/john-competitor</span><span class="text-xs color-muted">Profile</span><button class="btn btn-ghost btn-sm" style="color:var(--red)">Remove</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <!-- Safety -->
+        <div class="settings-panel" id="sSafety" style="display:none">
+          <div class="card-header"><div class="card-title">Safety Settings</div></div>
+          <div class="card-body">
+            <div style="display:flex;flex-direction:column;gap:18px">
+              <div class="flex-between"><div><div class="fw-700">Auto-pause on warning</div><div class="text-xs color-muted">Pause all campaigns if LinkedIn sends a warning to this account</div></div><div class="toggle on" onclick="this.classList.toggle('on')"></div></div>
+              <div class="flex-between"><div><div class="fw-700">Random delay between actions</div><div class="text-xs color-muted">Add 30–120 second randomized pauses between each action</div></div><div class="toggle on" onclick="this.classList.toggle('on')"></div></div>
+              <div class="flex-between"><div><div class="fw-700">Weekend pause</div><div class="text-xs color-muted">Automatically stop outreach on Saturday–Sunday</div></div><div class="toggle on" onclick="this.classList.toggle('on')"></div></div>
+              <div class="flex-between"><div><div class="fw-700">Daily limit hard cap</div><div class="text-xs color-muted">Never exceed the limit even if a campaign requests more</div></div><div class="toggle on" onclick="this.classList.toggle('on')"></div></div>
+            </div>
+            <div class="divider"></div>
+            <div style="background:var(--green-light);border:1px solid #A7F3D0;border-radius:8px;padding:14px;font-size:13px;color:#065F46">
+              🛡️ <strong>Safety score: Excellent.</strong> Your account has been running for 14 days. 0 LinkedIn warnings. Keep the daily limit at 10 for best results.
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</main>
+
+<!-- ═══════════════════════ EMPTY STATES (hidden by default) ═══════════════════════ -->
+
+<!-- Dashboard Empty -->
+<div class="empty-screen" id="es-dashboard" style="display:none">
+  <div class="header">
+    <div><div class="header-title">Dashboard</div><div class="header-sub">Welcome to Reachly — let's get you set up 👋</div></div>
+    <button class="btn btn-primary" onclick="openModal('addAccountModal')">＋ Connect LinkedIn</button>
+  </div>
+  <div class="content">
+    <div style="background:linear-gradient(135deg,#EEF2FF,#E0E7FF);border:1px solid #C7D2FE;border-radius:14px;padding:32px;display:flex;gap:32px;align-items:center;margin-bottom:28px">
+      <div style="flex:1">
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#6366F1;margin-bottom:8px">Get started</div>
+        <div style="font-size:22px;font-weight:800;color:#1E1B4B;margin-bottom:8px;line-height:1.2">You're one step away from your first connection</div>
+        <div style="font-size:14px;color:#4338CA;line-height:1.6;margin-bottom:20px">Connect your LinkedIn account, upload a lead list, and launch a campaign in under 5 minutes.</div>
+        <button class="btn btn-primary" onclick="openModal('addAccountModal')">Connect LinkedIn Account →</button>
+      </div>
+      <div style="font-size:80px;flex-shrink:0">🚀</div>
+    </div>
+
+    <div class="grid-3" style="margin-bottom:28px">
+      <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:24px;position:relative">
+        <div style="width:28px;height:28px;background:var(--primary);color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;margin-bottom:14px">1</div>
+        <div style="font-size:14px;font-weight:700;margin-bottom:6px">Connect LinkedIn</div>
+        <div style="font-size:12.5px;color:var(--fg2);line-height:1.5">Add your LinkedIn account. We keep it isolated in a private Docker container — invisible to LinkedIn's anti-bot systems.</div>
+        <button class="btn btn-primary btn-sm" style="margin-top:14px" onclick="openModal('addAccountModal')">Connect →</button>
+      </div>
+      <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:24px;opacity:.5">
+        <div style="width:28px;height:28px;background:var(--border);color:var(--fg3);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;margin-bottom:14px">2</div>
+        <div style="font-size:14px;font-weight:700;margin-bottom:6px">Upload Lead List</div>
+        <div style="font-size:12.5px;color:var(--fg2);line-height:1.5">Drop a CSV of LinkedIn profile URLs. We recommend 50–200 leads to start with to test your message.</div>
+      </div>
+      <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:24px;opacity:.5">
+        <div style="width:28px;height:28px;background:var(--border);color:var(--fg3);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;margin-bottom:14px">3</div>
+        <div style="font-size:14px;font-weight:700;margin-bottom:6px">Launch Campaign</div>
+        <div style="font-size:12.5px;color:var(--fg2);line-height:1.5">Write a connection note and follow-up messages. Reachly sends them automatically at 10/day with human-like timing.</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><div class="card-title">📚 Quick tips to get 30%+ acceptance rates</div></div>
+      <div class="card-body">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+          <div style="padding:14px;background:var(--bg);border-radius:8px;font-size:13px"><span style="font-weight:700">Keep your note short.</span> Under 280 characters — a one-liner outperforms a paragraph every time.</div>
+          <div style="padding:14px;background:var(--bg);border-radius:8px;font-size:13px"><span style="font-weight:700">Make it about them.</span> Reference their company, role, or a mutual interest. Generic notes get ignored.</div>
+          <div style="padding:14px;background:var(--bg);border-radius:8px;font-size:13px"><span style="font-weight:700">No pitch in message 1.</span> Build the connection first. Save the ask for message 2 or 3.</div>
+          <div style="padding:14px;background:var(--bg);border-radius:8px;font-size:13px"><span style="font-weight:700">10/day is the sweet spot.</span> Higher limits don't get more replies — they get your account flagged.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Campaigns Empty -->
+<div class="empty-screen" id="es-campaigns" style="display:none">
+  <div class="header">
+    <div><div class="header-title">Campaigns</div><div class="header-sub">No campaigns yet</div></div>
+    <button class="btn btn-primary" onclick="openModal('newCampaignModal')">＋ New Campaign</button>
+  </div>
+  <div class="content">
+    <div class="empty-state" style="padding:80px 24px">
+      <div class="empty-icon">📋</div>
+      <div class="empty-title">No campaigns yet</div>
+      <div class="empty-sub">A campaign pairs a lead list with a message sequence. Reachly handles the sending — you just write the messages.</div>
+      <button class="btn btn-primary" onclick="openModal('newCampaignModal')">Create your first campaign</button>
+      <div style="margin-top:32px;display:flex;justify-content:center;gap:40px;font-size:12.5px;color:var(--fg2)">
+        <div style="text-align:center"><div style="font-size:22px;margin-bottom:6px">⏱</div><div>5 mins to set up</div></div>
+        <div style="text-align:center"><div style="font-size:22px;margin-bottom:6px">🛡️</div><div>Safe 10/day limit</div></div>
+        <div style="text-align:center"><div style="font-size:22px;margin-bottom:6px">📈</div><div>Avg 35% acceptance</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Leads Empty -->
+<div class="empty-screen" id="es-leads" style="display:none">
+  <div class="header">
+    <div><div class="header-title">Lead Lists</div><div class="header-sub">No lists uploaded yet</div></div>
+    <button class="btn btn-primary" onclick="openModal('uploadLeadsModal')">＋ Upload CSV</button>
+  </div>
+  <div class="content">
+    <div style="max-width:560px;margin:0 auto;padding:40px 0">
+      <div class="card">
+        <div class="card-body">
+          <div style="text-align:center;margin-bottom:24px">
+            <div style="font-size:40px;margin-bottom:12px">📄</div>
+            <div style="font-size:16px;font-weight:700;margin-bottom:6px">Upload your first lead list</div>
+            <div style="font-size:13px;color:var(--fg2)">A CSV with LinkedIn profile URLs. That's all Reachly needs to start reaching out.</div>
+          </div>
+          <div class="upload-zone" onclick="openModal('uploadLeadsModal')">
+            <div class="upload-icon">📤</div>
+            <div style="font-size:14px;font-weight:700;color:var(--fg);margin-bottom:6px">Drop your CSV here or click to browse</div>
+            <div style="font-size:12px;color:var(--fg2)">Required column: <code>linkedin_url</code> — everything else is optional</div>
+          </div>
+          <div class="divider"></div>
+          <div style="font-size:13px;font-weight:700;margin-bottom:10px">What should my CSV look like?</div>
+          <div style="background:var(--bg);border-radius:8px;padding:14px;font-family:monospace;font-size:12px;color:var(--fg2);overflow-x:auto">
+            linkedin_url,first_name,last_name,company,title<br>
+            https://linkedin.com/in/john-smith,John,Smith,Acme Corp,Head of Sales<br>
+            https://linkedin.com/in/priya-sharma,Priya,Sharma,Notion,PM
+          </div>
+          <a href="#" style="font-size:12.5px;color:var(--primary);display:block;margin-top:10px">📥 Download template CSV</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Accounts Empty -->
+<div class="empty-screen" id="es-accounts" style="display:none">
+  <div class="header">
+    <div><div class="header-title">LinkedIn Accounts</div><div class="header-sub">No accounts connected</div></div>
+    <button class="btn btn-primary" onclick="openModal('addAccountModal')">＋ Connect Account</button>
+  </div>
+  <div class="content">
+    <div style="max-width:520px;margin:0 auto;padding:40px 0">
+      <div class="card">
+        <div class="card-body" style="text-align:center;padding:40px 32px">
+          <div style="font-size:52px;margin-bottom:16px">🔗</div>
+          <div style="font-size:18px;font-weight:800;margin-bottom:8px">Connect your LinkedIn account</div>
+          <div style="font-size:13.5px;color:var(--fg2);line-height:1.7;margin-bottom:24px">Each account runs inside its own isolated Docker container, with randomised timing and a 10/day cap — so LinkedIn sees normal human behaviour, not automation.</div>
+          <div style="display:flex;flex-direction:column;gap:10px;text-align:left;margin-bottom:28px">
+            <div style="display:flex;gap:12px;align-items:flex-start;padding:12px;background:var(--bg);border-radius:8px">
+              <span style="font-size:18px;flex-shrink:0">🔐</span>
+              <div><div style="font-size:13px;font-weight:700">AES-256 encrypted credentials</div><div style="font-size:12px;color:var(--fg2)">Never stored as plain text. Decrypted only inside the container.</div></div>
+            </div>
+            <div style="display:flex;gap:12px;align-items:flex-start;padding:12px;background:var(--bg);border-radius:8px">
+              <span style="font-size:18px;flex-shrink:0">🐳</span>
+              <div><div style="font-size:13px;font-weight:700">Private Docker container per account</div><div style="font-size:12px;color:var(--fg2)">Your browser session is isolated — invisible to LinkedIn's detection.</div></div>
+            </div>
+            <div style="display:flex;gap:12px;align-items:flex-start;padding:12px;background:var(--bg);border-radius:8px">
+              <span style="font-size:18px;flex-shrink:0">⏱</span>
+              <div><div style="font-size:13px;font-weight:700">10/day · random timing · 8am–8pm</div><div class="text-xs color-muted">The same pace a human would naturally work at.</div></div>
+            </div>
+          </div>
+          <button class="btn btn-primary" style="width:100%" onclick="openModal('addAccountModal')">Connect LinkedIn Account →</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Unibox Empty -->
+<div class="empty-screen" id="es-unibox" style="display:none">
+  <div class="header">
+    <div><div class="header-title">Unibox</div><div class="header-sub">All LinkedIn replies in one place</div></div>
+  </div>
+  <div class="content" style="display:flex;align-items:center;justify-content:center;min-height:calc(100vh - 108px)">
+    <div style="text-align:center;max-width:360px">
+      <div style="font-size:56px;margin-bottom:16px">💬</div>
+      <div style="font-size:18px;font-weight:800;margin-bottom:8px">No replies yet</div>
+      <div style="font-size:13.5px;color:var(--fg2);line-height:1.7;margin-bottom:24px">Once your connections start replying, all conversations appear here — from every LinkedIn account, across all campaigns, in one inbox.</div>
+      <button class="btn btn-outline" onclick="navigate('campaigns',null)">View campaigns →</button>
+    </div>
+  </div>
+</div>
+
+<!-- Analytics Empty -->
+<div class="empty-screen" id="es-analytics" style="display:none">
+  <div class="header">
+    <div><div class="header-title">Analytics</div><div class="header-sub">No data yet</div></div>
+  </div>
+  <div class="content" style="display:flex;align-items:center;justify-content:center;min-height:calc(100vh - 108px)">
+    <div style="text-align:center;max-width:400px">
+      <div style="font-size:56px;margin-bottom:16px">📊</div>
+      <div style="font-size:18px;font-weight:800;margin-bottom:8px">Analytics will appear here</div>
+      <div style="font-size:13.5px;color:var(--fg2);line-height:1.7;margin-bottom:8px">After your first campaign sends, you'll see acceptance rates, reply rates, best days to send, and campaign comparisons.</div>
+      <div style="font-size:12px;color:var(--fg3);margin-bottom:24px">Typically takes 24–48 hours after campaign launch for first data points.</div>
+      <button class="btn btn-primary" onclick="navigate('campaigns',null)">Launch a campaign →</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════ MODALS ═══════════════════════ -->
+
+<!-- New Campaign Modal -->
+<div class="modal-overlay" id="newCampaignModal">
+  <div class="modal modal-xl">
+    <div class="modal-header">
+      <div class="modal-title">Create New Campaign</div>
+      <button class="close-btn" onclick="closeModal('newCampaignModal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="tabs" id="campaignWizardTabs">
+        <div class="tab active" id="cwt1">1 · Basics</div>
+        <div class="tab" id="cwt2">2 · Lead List</div>
+        <div class="tab" id="cwt3">3 · Sequence</div>
+        <div class="tab" id="cwt4">4 · Review</div>
+      </div>
+      <!-- Step 1 -->
+      <div id="cwp1">
+        <div class="form-group"><label class="form-label">Campaign Name</label><input class="form-input" placeholder="e.g. SaaS Founders - Oct 2026"></div>
+        <div class="form-group"><label class="form-label">LinkedIn Account</label>
+          <select class="form-input form-select"><option>Ashish Dhingra (ashish@idesign.market)</option></select>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label class="form-label">Daily Limit</label><select class="form-input form-select"><option>10 (Recommended)</option><option>8</option><option>6</option></select></div>
+          <div class="form-group"><label class="form-label">Timezone</label><select class="form-input form-select"><option>Asia/Kolkata (IST)</option></select></div>
+        </div>
+        <div class="form-group"><label class="form-label">Campaign Goal (optional)</label><input class="form-input" placeholder="e.g. Book product demo calls"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('newCampaignModal')">Cancel</button>
+      <button class="btn btn-primary">Next: Lead List →</button>
+    </div>
+  </div>
+</div>
+
+<!-- Add Account Modal -->
+<div class="modal-overlay" id="addAccountModal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">Add LinkedIn Account</div>
+      <button class="close-btn" onclick="closeModal('addAccountModal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div style="background:var(--green-light);border:1px solid #A7F3D0;border-radius:8px;padding:12px 14px;margin-bottom:20px;font-size:12.5px;color:#065F46">🔐 <strong>Your credentials are AES-256 encrypted</strong> and stored in an isolated Docker container. We never use plain-text passwords.</div>
+      <div class="form-group"><label class="form-label">LinkedIn Email</label><input class="form-input" type="email" placeholder="you@company.com"></div>
+      <div class="form-group"><label class="form-label">LinkedIn Password</label><input class="form-input" type="password" placeholder="••••••••"></div>
+      <div class="form-group"><label class="form-label">Daily Connection Limit</label>
+        <select class="form-input form-select"><option>10 (Recommended — safest)</option><option>8</option><option>6</option></select>
+        <div class="form-hint">We recommend 10/day. Higher limits increase ban risk.</div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('addAccountModal')">Cancel</button>
+      <button class="btn btn-primary">Connect Account</button>
+    </div>
+  </div>
+</div>
+
+<!-- Upload Leads Modal -->
+<div class="modal-overlay" id="uploadLeadsModal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">Upload Lead List</div>
+      <button class="close-btn" onclick="closeModal('uploadLeadsModal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group"><label class="form-label">List Name</label><input class="form-input" placeholder="e.g. SaaS Founders Q4"></div>
+      <div class="upload-zone" style="margin-bottom:12px">
+        <div class="upload-icon">📄</div>
+        <div style="font-size:14px;font-weight:700;color:var(--fg);margin-bottom:4px">Drop CSV here or click to browse</div>
+        <div style="font-size:12px;color:var(--fg2)">Required column: <code>linkedin_url</code>. Optional: <code>first_name</code>, <code>last_name</code>, <code>company</code>, <code>title</code></div>
+      </div>
+      <a href="#" style="font-size:12.5px;color:var(--primary)">📥 Download CSV template</a>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('uploadLeadsModal')">Cancel</button>
+      <button class="btn btn-primary">Upload & Import</button>
+    </div>
+  </div>
+</div>
+
+<!-- Lead Detail Modal -->
+<div class="modal-overlay" id="leadDetailModal">
+  <div class="modal modal-lg">
+    <div class="modal-header">
+      <div class="modal-title">SaaS Founders India · 200 Leads</div>
+      <button class="close-btn" onclick="closeModal('leadDetailModal')">✕</button>
+    </div>
+    <div class="modal-body" style="padding:0">
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Name</th><th>Company</th><th>Title</th><th>Status</th><th>LinkedIn</th></tr></thead>
+          <tbody>
+            <tr><td class="td-main">Rohan Kapoor</td><td>ZoomInfo</td><td>Head of Sales</td><td><span class="badge badge-blue">Replied</span></td><td><a href="#" style="color:var(--primary);font-size:12px">View →</a></td></tr>
+            <tr><td class="td-main">Priya Sharma</td><td>Notion</td><td>Product Manager</td><td><span class="badge badge-green">Accepted</span></td><td><a href="#" style="color:var(--primary);font-size:12px">View →</a></td></tr>
+            <tr><td class="td-main">Amit Verma</td><td>Freshworks</td><td>Growth Lead</td><td><span class="badge badge-indigo">Sent</span></td><td><a href="#" style="color:var(--primary);font-size:12px">View →</a></td></tr>
+            <tr><td class="td-main">Sneha Nair</td><td>Meesho</td><td>CEO</td><td><span class="badge badge-gray">Pending</span></td><td><a href="#" style="color:var(--primary);font-size:12px">View →</a></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ─── NAVIGATION ───────────────────────────────────────────
+let currentScreen = 'dashboard';
+let emptyMode = false;
+
+function navigate(screen, el) {
+  currentScreen = screen;
+  // Hide all populated screens
+  document.querySelectorAll('[data-screen]').forEach(s => s.classList.remove('active'));
+  // Hide all empty screens
+  document.querySelectorAll('.empty-screen').forEach(s => s.style.display = 'none');
+
+  if (emptyMode && emptyScreenMap[screen]) {
+    // Show empty state instead
+    document.getElementById(emptyScreenMap[screen]).style.display = 'block';
+  } else {
+    const target = document.querySelector('[data-screen="'+screen+'"]');
+    if (target) target.classList.add('active');
+  }
+
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  if (el) el.classList.add('active');
+  else {
+    const map = {campaigns:'Campaigns',leads:'Lead Lists',unibox:'Unibox',accounts:'LinkedIn Accounts',analytics:'Analytics',settings:'Settings',dashboard:'Dashboard',campaignDetail:'Campaigns'};
+    document.querySelectorAll('.nav-item').forEach(n => { if (n.textContent.trim().startsWith(map[screen]||'__')) n.classList.add('active'); });
+  }
+  window.scrollTo(0,0);
+  if (screen==='analytics') setTimeout(initAnalyticsCharts,100);
+  if (screen==='campaignDetail') setTimeout(initDetailChart,100);
+}
+
+// ─── MODALS ───────────────────────────────────────────────
+function openModal(id) { document.getElementById(id).classList.add('open'); }
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+document.querySelectorAll('.modal-overlay').forEach(o => { o.addEventListener('click', e => { if(e.target===o) o.classList.remove('open'); }); });
+
+// ─── DROPDOWNS ────────────────────────────────────────────
+function toggleDD(id, e) {
+  e.stopPropagation();
+  const el = document.getElementById(id);
+  const wasOpen = el.classList.contains('open');
+  document.querySelectorAll('.dropdown-menu').forEach(d => d.classList.remove('open'));
+  if (!wasOpen) el.classList.add('open');
+}
+document.addEventListener('click', () => document.querySelectorAll('.dropdown-menu').forEach(d => d.classList.remove('open')));
+
+// ─── SETTINGS ─────────────────────────────────────────────
+function switchSettings(panelId, el) {
+  document.querySelectorAll('.settings-panel').forEach(p => p.style.display='none');
+  document.getElementById(panelId).style.display='block';
+  document.querySelectorAll('.settings-nav-item').forEach(i => i.classList.remove('active'));
+  el.classList.add('active');
+}
+
+// ─── ONBOARDING ───────────────────────────────────────────
+let obStep = 1;
+function nextStep() {
+  if (obStep >= 4) { document.getElementById('onboardOverlay').style.display='none'; return; }
+  document.getElementById('ob'+obStep).style.display='none';
+  obStep++;
+  document.getElementById('ob'+obStep).style.display='block';
+  document.querySelectorAll('.onboard-step-dot').forEach((d,i) => d.classList.toggle('done', i<obStep));
+  if (obStep===4) document.getElementById('obNextBtn').textContent='Go to Dashboard 🚀';
+}
+function prevStep() {
+  if (obStep <= 1) return;
+  document.getElementById('ob'+obStep).style.display='none';
+  obStep--;
+  document.getElementById('ob'+obStep).style.display='block';
+  document.querySelectorAll('.onboard-step-dot').forEach((d,i) => d.classList.toggle('done', i<obStep));
+  document.getElementById('obNextBtn').textContent='Continue →';
+}
+
+// ─── CHARTS ───────────────────────────────────────────────
+const chartDefaults = {
+  font: { family: "'Plus Jakarta Sans', sans-serif" },
+  color: '#6B7280',
+  plugins: { legend: { display: false }, tooltip: { cornerRadius: 8, padding: 10 } },
+  scales: {
+    x: { grid: { display: false }, border: { display: false }, ticks: { font: { size: 11, family: "'Plus Jakarta Sans', sans-serif" }, color: '#9CA3AF' } },
+    y: { grid: { color: 'rgba(0,0,0,.05)' }, border: { display: false }, ticks: { font: { size: 11, family: "'Plus Jakarta Sans', sans-serif" }, color: '#9CA3AF' } }
+  }
+};
+
+function initActivityChart() {
+  const ctx = document.getElementById('activityChart');
+  if (!ctx || ctx._chart) return;
+  const labels = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+  ctx._chart = new Chart(ctx, { type:'bar', data: {
+    labels,
+    datasets: [
+      { label:'Sent', data:[10,10,10,10,10,0,0], backgroundColor:'rgba(99,102,241,.15)', borderColor:'#6366F1', borderWidth:1.5, borderRadius:4 },
+      { label:'Accepted', data:[3,4,5,4,3,0,0], backgroundColor:'#6366F1', borderRadius:4 }
+    ]
+  }, options: { ...chartDefaults, plugins: { legend: { display:true, position:'bottom', labels:{ usePointStyle:true, padding:16, font:{size:11,family:"'Plus Jakarta Sans', sans-serif"} } }, tooltip: chartDefaults.plugins.tooltip } } });
+}
+
+function initDetailChart() {
+  const ctx = document.getElementById('detailChart');
+  if (!ctx || ctx._chart) return;
+  const labels = ['Oct 8','Oct 9','Oct 10','Oct 11','Oct 12','Oct 13','Oct 14','Oct 15','Oct 16','Oct 17','Oct 18','Oct 19','Oct 20','Oct 21'];
+  ctx._chart = new Chart(ctx, { type:'line', data: {
+    labels,
+    datasets: [{
+      data:[0,10,10,10,10,0,0,10,10,10,10,10,0,0],
+      borderColor:'#6366F1', backgroundColor:'rgba(99,102,241,.08)', fill:true, tension:.4, pointRadius:3, pointBackgroundColor:'#6366F1'
+    }]
+  }, options: chartDefaults });
+}
+
+function initAnalyticsCharts() {
+  const ctx1 = document.getElementById('daysChart');
+  if (ctx1 && !ctx1._chart) {
+    ctx1._chart = new Chart(ctx1, { type:'bar', data: {
+      labels:['Mon','Tue','Wed','Thu','Fri','Sat','Sun'],
+      datasets:[{ data:[42,38,45,41,32,5,3], backgroundColor:['#6366F1','#818CF8','#6366F1','#818CF8','#A5B4FC','#C7D2FE','#E0E7FF'], borderRadius:6 }]
+    }, options: chartDefaults });
+  }
+  const ctx2 = document.getElementById('stepsChart');
+  if (ctx2 && !ctx2._chart) {
+    ctx2._chart = new Chart(ctx2, { type:'bar', data: {
+      labels:['Connection Note','Msg 1 (Day 3)','Msg 2 (Day 7)'],
+      datasets:[{ data:[0,24,31], backgroundColor:['#E0E7FF','#818CF8','#6366F1'], borderRadius:6 }]
+    }, options: { ...chartDefaults, indexAxis:'y' } });
+  }
+}
+
+// ─── EMPTY STATE TOGGLE ───────────────────────────────────
+const emptyScreenMap = {
+  dashboard: 'es-dashboard',
+  campaigns: 'es-campaigns',
+  leads: 'es-leads',
+  accounts: 'es-accounts',
+  unibox: 'es-unibox',
+  analytics: 'es-analytics'
+};
+
+function toggleEmptyMode() {
+  emptyMode = !emptyMode;
+  document.getElementById('emptyToggleLabel').textContent = emptyMode ? 'Empty' : 'Populated';
+  navigate(currentScreen, null);
+}
+
+// Init on load
+setTimeout(initActivityChart, 200);
+</script>
+</body>
+</html>
+
+</body></html>
