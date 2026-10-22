@@ -6,12 +6,17 @@ import { CONVERSATIONS_PAGE_SIZE, MESSAGES_PAGE_SIZE } from "./constants";
 import type {
   ConversationSummary,
   ConversationWithMessages,
+  InternalNoteRow,
   MessageRow,
   PaginatedConversations,
 } from "./types";
+import { classifyUniboxDbError } from "./db-errors";
 import {
   validateConversationStatus,
   validateConversationTitle,
+  validateInternalNoteBody,
+  validateInternalNoteKind,
+  validateInternalNoteParents,
   validateMessageBody,
   validateMessageDirection,
 } from "./validation";
@@ -26,17 +31,15 @@ export class UniboxDataError extends Error {
 }
 
 function mapSchemaError(error: { code?: string; message?: string }) {
-  const hint = `${error.code ?? ""} ${error.message ?? ""}`.toLowerCase();
-  if (
-    error.code === "42P01" ||
-    error.code === "PGRST205" ||
-    hint.includes("conversations") ||
-    hint.includes("schema cache")
-  ) {
+  const kind = classifyUniboxDbError(error);
+  if (kind === "SCHEMA_MISSING") {
     throw new UniboxDataError(
       "Unibox tables are missing in this Supabase project.",
       "SCHEMA_MISSING",
     );
+  }
+  if (kind === "RELATIONSHIP_MISMATCH") {
+    throw new UniboxDataError("Note does not match this conversation or workspace.", "VALIDATION");
   }
 }
 
@@ -161,10 +164,168 @@ export async function getConversationWithMessages(
     throw new UniboxDataError("Failed to load messages", "LOAD_FAILED");
   }
 
+  const internalNotes = await listInternalNotesForConversation(conversationId, supabase, ctx.workspaceId);
+
   return {
     ...mapConversationRow(conv as Record<string, unknown>),
     messages: (messages ?? []) as MessageRow[],
+    internal_notes: internalNotes,
   };
+}
+
+async function listInternalNotesForConversation(
+  conversationId: string,
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  workspaceId: string,
+): Promise<InternalNoteRow[]> {
+  const { data, error } = await supabase
+    .from("unibox_internal_notes")
+    .select("id, workspace_id, conversation_id, lead_id, kind, body, created_at, updated_at")
+    .eq("conversation_id", conversationId)
+    .eq("workspace_id", workspaceId)
+    .order("updated_at", { ascending: true });
+
+  if (error) {
+    mapSchemaError(error);
+    throw new UniboxDataError("Failed to load internal notes", "LOAD_FAILED");
+  }
+
+  return (data ?? []) as InternalNoteRow[];
+}
+
+export async function listInternalNotesForLead(leadId: string): Promise<InternalNoteRow[]> {
+  const { supabase, ctx } = await getScopedClient();
+  await assertLeadInWorkspace(leadId, ctx.workspaceId, supabase);
+
+  const { data, error } = await supabase
+    .from("unibox_internal_notes")
+    .select("id, workspace_id, conversation_id, lead_id, kind, body, created_at, updated_at")
+    .eq("lead_id", leadId)
+    .eq("workspace_id", ctx.workspaceId)
+    .is("conversation_id", null)
+    .order("updated_at", { ascending: true });
+
+  if (error) {
+    mapSchemaError(error);
+    throw new UniboxDataError("Failed to load lead notes", "LOAD_FAILED");
+  }
+
+  return (data ?? []) as InternalNoteRow[];
+}
+
+async function getInternalNoteById(noteId: string): Promise<InternalNoteRow | null> {
+  const { supabase, ctx } = await getScopedClient();
+  const { data, error } = await supabase
+    .from("unibox_internal_notes")
+    .select("id, workspace_id, conversation_id, lead_id, kind, body, created_at, updated_at")
+    .eq("id", noteId)
+    .eq("workspace_id", ctx.workspaceId)
+    .maybeSingle();
+
+  if (error) {
+    mapSchemaError(error);
+    throw new UniboxDataError("Failed to load note", "LOAD_FAILED");
+  }
+
+  return (data as InternalNoteRow | null) ?? null;
+}
+
+export async function createInternalNote(input: {
+  conversation_id?: string | null;
+  lead_id?: string | null;
+  kind: string;
+  body: string;
+}): Promise<InternalNoteRow> {
+  const { supabase, ctx } = await getScopedClient();
+  const parents = validateInternalNoteParents(input.conversation_id, input.lead_id);
+  const kind = validateInternalNoteKind(input.kind);
+  const body = validateInternalNoteBody(input.body);
+  if (!parents || !kind || !body) {
+    throw new UniboxDataError("Invalid internal note", "VALIDATION");
+  }
+
+  const conversationId = parents.conversationId;
+  let leadId = parents.leadId;
+
+  if (conversationId) {
+    const { data: conv, error: convError } = await supabase
+      .from("conversations")
+      .select("id, lead_id")
+      .eq("id", conversationId)
+      .eq("workspace_id", ctx.workspaceId)
+      .maybeSingle();
+    if (convError) {
+      mapSchemaError(convError);
+      throw new UniboxDataError("Failed to load conversation", "LOAD_FAILED");
+    }
+    if (!conv) throw new UniboxDataError("Conversation not found", "NOT_FOUND");
+    if (leadId && conv.lead_id && leadId !== conv.lead_id) {
+      throw new UniboxDataError("Lead does not match this conversation", "VALIDATION");
+    }
+    if (!leadId && conv.lead_id) leadId = conv.lead_id;
+  } else if (leadId) {
+    await assertLeadInWorkspace(leadId, ctx.workspaceId, supabase);
+  }
+
+  const { data, error } = await supabase
+    .from("unibox_internal_notes")
+    .insert({
+      workspace_id: ctx.workspaceId,
+      conversation_id: conversationId,
+      lead_id: leadId,
+      kind,
+      body,
+    })
+    .select("id, workspace_id, conversation_id, lead_id, kind, body, created_at, updated_at")
+    .single();
+
+  if (error) {
+    mapSchemaError(error);
+    throw new UniboxDataError("Failed to save internal note", "CREATE_FAILED");
+  }
+
+  return data as InternalNoteRow;
+}
+
+export async function updateInternalNote(noteId: string, body: string): Promise<InternalNoteRow> {
+  const { supabase, ctx } = await getScopedClient();
+  const validBody = validateInternalNoteBody(body);
+  if (!validBody) throw new UniboxDataError("Invalid note content", "VALIDATION");
+
+  const existing = await getInternalNoteById(noteId);
+  if (!existing) throw new UniboxDataError("Note not found", "NOT_FOUND");
+
+  const { data, error } = await supabase
+    .from("unibox_internal_notes")
+    .update({ body: validBody })
+    .eq("id", noteId)
+    .eq("workspace_id", ctx.workspaceId)
+    .select("id, workspace_id, conversation_id, lead_id, kind, body, created_at, updated_at")
+    .single();
+
+  if (error || !data) {
+    mapSchemaError(error ?? {});
+    throw new UniboxDataError("Failed to update note", "UPDATE_FAILED");
+  }
+
+  return data as InternalNoteRow;
+}
+
+export async function deleteInternalNote(noteId: string): Promise<void> {
+  const { supabase, ctx } = await getScopedClient();
+  const existing = await getInternalNoteById(noteId);
+  if (!existing) throw new UniboxDataError("Note not found", "NOT_FOUND");
+
+  const { error } = await supabase
+    .from("unibox_internal_notes")
+    .delete()
+    .eq("id", noteId)
+    .eq("workspace_id", ctx.workspaceId);
+
+  if (error) {
+    mapSchemaError(error);
+    throw new UniboxDataError("Failed to delete note", "DELETE_FAILED");
+  }
 }
 
 async function assertLeadInWorkspace(leadId: string, workspaceId: string, supabase: Awaited<ReturnType<typeof createClient>>) {

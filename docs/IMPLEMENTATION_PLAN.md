@@ -43,6 +43,7 @@
 ## Phase 7 — Inbox and conversation workflows
 
 - [x] Unibox schema + workspace persistence (no external sync)
+- [x] Unibox internal notes/drafts (Task 008 — separate from thread messages)
 - [ ] LinkedIn reply sync, external send, audit trail
 
 ## Phase 8 — Supported integrations and background processing

@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { conversationDisplayName, initialsFromName, messageBubbleClass } from "./display";
+import {
+  conversationDisplayName,
+  initialsFromName,
+  internalNoteKindLabel,
+  messageBubbleClass,
+} from "./display";
 import type { ConversationSummary } from "./types";
 
 describe("unibox display", () => {
@@ -29,5 +34,11 @@ describe("unibox display", () => {
 
   it("builds initials", () => {
     expect(initialsFromName("Rohan Kapoor")).toBe("RK");
+  });
+
+  it("labels internal notes separately from thread bubbles", () => {
+    expect(internalNoteKindLabel("note")).toBe("Internal note");
+    expect(internalNoteKindLabel("draft")).toBe("Draft — not sent");
+    expect(messageBubbleClass("outbound")).toBe("sent");
   });
 });

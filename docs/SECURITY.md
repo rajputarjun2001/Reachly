@@ -18,7 +18,7 @@
 
 ### Database
 
-- Row Level Security **enabled** on `profiles`, `workspaces`, `workspace_members`, `lead_lists`, `leads`, `campaigns`, `campaign_steps`.
+- Row Level Security **enabled** on `profiles`, `workspaces`, `workspace_members`, `lead_lists`, `leads`, `campaigns`, `campaign_steps`, `conversations`, `messages`, `unibox_internal_notes`.
 - No `USING (true)` policies on tenant data.
 - Workspace creation only through `create_initial_workspace()` (`SECURITY DEFINER`, `search_path = public`).
 - Users cannot insert arbitrary `workspace_members` rows via client policies.
@@ -33,9 +33,10 @@
 
 ### Unibox
 
-- RLS on `conversations` and `messages`; composite FKs prevent cross-workspace threads.
-- Message body max 8000 chars; do not log message content in application logs.
-- Delete restricted to owner/admin on conversations/messages (same as other admin deletes).
+- RLS on `conversations`, `messages`, and `unibox_internal_notes`; composite FKs prevent cross-workspace threads and mismatched lead/conversation pairs (DB trigger `enforce_unibox_internal_note_parents`).
+- Thread `messages` represent inbound/outbound/system conversation history only. Internal notes/drafts live in `unibox_internal_notes` and must never be inserted into `messages` as if sent.
+- Body max 8000 chars for messages and internal notes; do not log message or note content in application logs.
+- Delete on conversations/messages restricted to owner/admin; workspace members may delete their workspace internal notes via RLS member policy.
 
 ### Campaigns (configuration only)
 

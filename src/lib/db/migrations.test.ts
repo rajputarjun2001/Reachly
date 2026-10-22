@@ -49,4 +49,17 @@ describe("supabase migrations", () => {
     expect(sql).toMatch(/conversations_lead_workspace_fk/i);
     expect(sql).toMatch(/leads_id_workspace_uidx/i);
   });
+
+  it("defines unibox internal notes separate from messages", () => {
+    const sql = readFileSync(
+      join(process.cwd(), "supabase/migrations/20260222160000_unibox_internal_notes.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/create table public\.unibox_internal_notes/i);
+    expect(sql).toMatch(/kind text not null default 'note'/i);
+    expect(sql).toMatch(/unibox_internal_notes_conversation_workspace_fk/i);
+    expect(sql).toMatch(/is_workspace_member\(workspace_id\)/i);
+    expect(sql).not.toMatch(/direction/i);
+    expect(sql).not.toMatch(/sent_at/i);
+  });
 });

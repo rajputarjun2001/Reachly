@@ -2,6 +2,20 @@ export type ConversationStatus = "open" | "archived";
 
 export type MessageDirection = "outbound" | "inbound" | "system";
 
+/** Workspace-only record — not an external message and never delivered. */
+export type InternalNoteKind = "note" | "draft";
+
+export type InternalNoteRow = {
+  id: string;
+  workspace_id: string;
+  conversation_id: string | null;
+  lead_id: string | null;
+  kind: InternalNoteKind;
+  body: string;
+  created_at: string;
+  updated_at: string;
+};
+
 export type ConversationRow = {
   id: string;
   workspace_id: string;
@@ -33,6 +47,7 @@ export type ConversationSummary = ConversationRow & {
 
 export type ConversationWithMessages = ConversationSummary & {
   messages: MessageRow[];
+  internal_notes: InternalNoteRow[];
 };
 
 export type PaginatedConversations = {

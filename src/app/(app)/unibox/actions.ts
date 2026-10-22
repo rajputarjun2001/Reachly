@@ -3,19 +3,22 @@
 import { revalidatePath } from "next/cache";
 import { isSupabaseConfigured } from "@/lib/env";
 import {
-  addMessage,
   createConversation,
+  createInternalNote,
+  deleteInternalNote,
   getConversationWithMessages,
   listConversations,
   updateConversationStatus,
+  updateInternalNote,
   UniboxDataError,
 } from "@/lib/unibox/repository";
-import type { ConversationWithMessages, PaginatedConversations } from "@/lib/unibox/types";
+import type { ConversationWithMessages, InternalNoteRow, PaginatedConversations } from "@/lib/unibox/types";
 
 export type UniboxActionResult = {
   error?: string;
   success?: string;
   conversationId?: string;
+  note?: InternalNoteRow;
 };
 
 export type UniboxFetchResult = {
@@ -68,17 +71,58 @@ export async function createConversationAction(formData: FormData): Promise<Unib
   }
 }
 
-/** Stores a workspace-local note only — does not send externally. */
+/**
+ * @deprecated Use createInternalNoteAction — does not create thread messages.
+ * Kept for compatibility; stores an internal draft, not an outbound message.
+ */
 export async function saveLocalMessageAction(
   conversationId: string,
   body: string,
-  direction: string = "outbound",
+): Promise<UniboxActionResult> {
+  return createInternalNoteAction(conversationId, body, "draft");
+}
+
+export async function createInternalNoteAction(
+  conversationId: string | null,
+  body: string,
+  kind: string,
+  leadId?: string | null,
 ): Promise<UniboxActionResult> {
   if (!isSupabaseConfigured()) return { error: "Supabase is not configured." };
   try {
-    await addMessage({ conversation_id: conversationId, direction, body });
+    const note = await createInternalNote({
+      conversation_id: conversationId,
+      lead_id: leadId ?? null,
+      kind,
+      body,
+    });
     revalidatePath("/unibox");
-    return { success: "Message saved to this workspace (not sent externally)." };
+    return {
+      success: kind === "draft" ? "Draft saved (not sent)." : "Internal note saved.",
+      note,
+    };
+  } catch (err) {
+    return { error: mapError(err) };
+  }
+}
+
+export async function updateInternalNoteAction(noteId: string, body: string): Promise<UniboxActionResult> {
+  if (!isSupabaseConfigured()) return { error: "Supabase is not configured." };
+  try {
+    const note = await updateInternalNote(noteId, body);
+    revalidatePath("/unibox");
+    return { success: "Note updated.", note };
+  } catch (err) {
+    return { error: mapError(err) };
+  }
+}
+
+export async function deleteInternalNoteAction(noteId: string): Promise<UniboxActionResult> {
+  if (!isSupabaseConfigured()) return { error: "Supabase is not configured." };
+  try {
+    await deleteInternalNote(noteId);
+    revalidatePath("/unibox");
+    return { success: "Note deleted." };
   } catch (err) {
     return { error: mapError(err) };
   }

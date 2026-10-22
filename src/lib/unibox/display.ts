@@ -1,4 +1,4 @@
-import type { ConversationSummary, MessageDirection } from "./types";
+import type { ConversationSummary, InternalNoteKind, MessageDirection } from "./types";
 
 export function conversationDisplayName(c: ConversationSummary): string {
   const parts = [c.lead_first_name, c.lead_last_name].filter(Boolean);
@@ -33,4 +33,9 @@ export function formatRelativeTime(iso: string | null): string {
 export function messageBubbleClass(direction: MessageDirection): "sent" | "recv" {
   if (direction === "inbound") return "recv";
   return "sent";
+}
+
+export function internalNoteKindLabel(kind: InternalNoteKind): string {
+  if (kind === "draft") return "Draft — not sent";
+  return "Internal note";
 }

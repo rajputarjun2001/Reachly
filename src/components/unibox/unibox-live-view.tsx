@@ -9,9 +9,17 @@ import {
   conversationDisplayName,
   formatRelativeTime,
   initialsFromName,
+  internalNoteKindLabel,
   messageBubbleClass,
 } from "@/lib/unibox/display";
-import { fetchConversationDetailAction } from "@/app/(app)/unibox/actions";
+import type { InternalNoteKind, InternalNoteRow } from "@/lib/unibox/types";
+import { MESSAGE_BODY_MAX } from "@/lib/unibox/constants";
+import {
+  createInternalNoteAction,
+  deleteInternalNoteAction,
+  fetchConversationDetailAction,
+  updateInternalNoteAction,
+} from "@/app/(app)/unibox/actions";
 
 type UniboxLiveViewProps = {
   initialList: ConversationSummary[];
@@ -24,7 +32,14 @@ export function UniboxLiveView({ initialList, initialDetail, loadError }: Unibox
   const [detail, setDetail] = useState<ConversationWithMessages | null>(initialDetail);
   const [search, setSearch] = useState("");
   const [detailError, setDetailError] = useState<string | null>(null);
+  const [noteDraft, setNoteDraft] = useState("");
+  const [noteKind, setNoteKind] = useState<InternalNoteKind>("note");
+  const [noteFormError, setNoteFormError] = useState<string | null>(null);
+  const [noteFormSuccess, setNoteFormSuccess] = useState<string | null>(null);
+  const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
+  const [editingBody, setEditingBody] = useState("");
   const [pending, startTransition] = useTransition();
+  const [notePending, startNoteTransition] = useTransition();
 
   useEffect(() => {
     if (!selectedId) {
@@ -46,6 +61,89 @@ export function UniboxLiveView({ initialList, initialDetail, loadError }: Unibox
       setDetail(result.conversation ?? null);
     });
   }, [selectedId, initialDetail]);
+
+  useEffect(() => {
+    setNoteDraft("");
+    setNoteFormError(null);
+    setNoteFormSuccess(null);
+    setEditingNoteId(null);
+    setEditingBody("");
+  }, [selectedId]);
+
+  const refreshDetail = (conversationId: string) => {
+    startTransition(async () => {
+      const result = await fetchConversationDetailAction(conversationId);
+      if (result.error) {
+        setDetailError(result.error);
+        return;
+      }
+      setDetailError(null);
+      setDetail(result.conversation ?? null);
+    });
+  };
+
+  const handleSaveNote = () => {
+    if (!selectedId) return;
+    const trimmed = noteDraft.trim();
+    if (!trimmed) {
+      setNoteFormError("Enter some text before saving.");
+      setNoteFormSuccess(null);
+      return;
+    }
+    if (trimmed.length > MESSAGE_BODY_MAX) {
+      setNoteFormError(`Content must be ${MESSAGE_BODY_MAX} characters or fewer.`);
+      setNoteFormSuccess(null);
+      return;
+    }
+    setNoteFormError(null);
+    startNoteTransition(async () => {
+      const result = await createInternalNoteAction(selectedId, trimmed, noteKind);
+      if (result.error) {
+        setNoteFormError(result.error);
+        setNoteFormSuccess(null);
+        return;
+      }
+      setNoteDraft("");
+      setNoteFormSuccess(result.success ?? "Saved.");
+      refreshDetail(selectedId);
+    });
+  };
+
+  const handleUpdateNote = (note: InternalNoteRow) => {
+    const trimmed = editingBody.trim();
+    if (!trimmed) {
+      setNoteFormError("Note cannot be empty.");
+      return;
+    }
+    if (trimmed.length > MESSAGE_BODY_MAX) {
+      setNoteFormError(`Content must be ${MESSAGE_BODY_MAX} characters or fewer.`);
+      return;
+    }
+    setNoteFormError(null);
+    startNoteTransition(async () => {
+      const result = await updateInternalNoteAction(note.id, trimmed);
+      if (result.error) {
+        setNoteFormError(result.error);
+        return;
+      }
+      setEditingNoteId(null);
+      setEditingBody("");
+      setNoteFormSuccess(result.success ?? "Updated.");
+      if (selectedId) refreshDetail(selectedId);
+    });
+  };
+
+  const handleDeleteNote = (noteId: string) => {
+    startNoteTransition(async () => {
+      const result = await deleteInternalNoteAction(noteId);
+      if (result.error) {
+        setNoteFormError(result.error);
+        return;
+      }
+      setNoteFormSuccess(result.success ?? "Deleted.");
+      if (selectedId) refreshDetail(selectedId);
+    });
+  };
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -82,6 +180,7 @@ export function UniboxLiveView({ initialList, initialDetail, loadError }: Unibox
   }
 
   const messages = detail?.messages ?? [];
+  const internalNotes = detail?.internal_notes ?? [];
 
   return (
     <>
@@ -189,19 +288,159 @@ export function UniboxLiveView({ initialList, initialDetail, loadError }: Unibox
                   )
                 )}
               </div>
+              <section
+                aria-labelledby="unibox-internal-notes-heading"
+                style={{
+                  borderTop: "1px solid var(--border)",
+                  padding: "12px 16px 16px",
+                  background: "var(--bg2, var(--bg))",
+                }}
+              >
+                <div id="unibox-internal-notes-heading" style={{ fontSize: 12, fontWeight: 700, marginBottom: 8 }}>
+                  Internal notes & drafts
+                </div>
+                <p className="form-hint" style={{ margin: "0 0 12px" }}>
+                  Saved only in your workspace. These are not sent to LinkedIn and do not appear as delivered messages.
+                </p>
+                {noteFormError ? (
+                  <p className="form-hint" role="alert" style={{ color: "var(--red)", marginBottom: 8 }}>{noteFormError}</p>
+                ) : null}
+                {noteFormSuccess ? (
+                  <p className="form-hint" role="status" style={{ color: "var(--green, #15803d)", marginBottom: 8 }}>{noteFormSuccess}</p>
+                ) : null}
+                {internalNotes.length === 0 && !notePending ? (
+                  <p className="text-sm color-muted" style={{ marginBottom: 12 }}>No internal notes yet for this conversation.</p>
+                ) : (
+                  <ul style={{ listStyle: "none", margin: "0 0 12px", padding: 0, display: "flex", flexDirection: "column", gap: 8 }}>
+                    {internalNotes.map((note) => (
+                      <li
+                        key={note.id}
+                        style={{
+                          border: "1px dashed var(--border)",
+                          borderRadius: 8,
+                          padding: 10,
+                          background: "var(--bg)",
+                        }}
+                      >
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginBottom: 6 }}>
+                          <span
+                            className="text-xs"
+                            style={{ fontWeight: 700, color: "var(--fg2)" }}
+                          >
+                            {internalNoteKindLabel(note.kind)}
+                          </span>
+                          <span className="text-xs color-muted">{formatRelativeTime(note.updated_at)}</span>
+                        </div>
+                        {editingNoteId === note.id ? (
+                          <>
+                            <textarea
+                              rows={3}
+                              className="form-input"
+                              style={{ width: "100%", marginBottom: 8 }}
+                              aria-label="Edit internal note"
+                              value={editingBody}
+                              onChange={(e) => setEditingBody(e.target.value)}
+                            />
+                            <div style={{ display: "flex", gap: 8 }}>
+                              <button
+                                type="button"
+                                className="btn btn-primary btn-sm"
+                                disabled={notePending}
+                                onClick={() => handleUpdateNote(note)}
+                              >
+                                Save changes
+                              </button>
+                              <button
+                                type="button"
+                                className="btn btn-outline btn-sm"
+                                onClick={() => {
+                                  setEditingNoteId(null);
+                                  setEditingBody("");
+                                }}
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <p style={{ fontSize: 13, lineHeight: 1.5, margin: "0 0 8px", whiteSpace: "pre-wrap" }}>{note.body}</p>
+                            {note.lead_id && !note.conversation_id ? (
+                              <p className="text-xs color-muted" style={{ marginBottom: 8 }}>Attached to lead (no conversation)</p>
+                            ) : null}
+                            <div style={{ display: "flex", gap: 8 }}>
+                              <button
+                                type="button"
+                                className="btn btn-outline btn-sm"
+                                onClick={() => {
+                                  setEditingNoteId(note.id);
+                                  setEditingBody(note.body);
+                                  setNoteFormError(null);
+                                }}
+                              >
+                                Edit
+                              </button>
+                              <button
+                                type="button"
+                                className="btn btn-outline btn-sm"
+                                disabled={notePending}
+                                onClick={() => handleDeleteNote(note.id)}
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          </>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {notePending ? <p className="text-sm color-muted" style={{ marginBottom: 8 }}>Saving…</p> : null}
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 8, alignItems: "center" }}>
+                  <label className="text-xs color-muted" htmlFor="unibox-note-kind">Type</label>
+                  <select
+                    id="unibox-note-kind"
+                    className="form-input form-select btn-sm"
+                    style={{ width: 200 }}
+                    value={noteKind}
+                    onChange={(e) => setNoteKind(e.target.value as InternalNoteKind)}
+                    aria-label="Internal note type"
+                  >
+                    <option value="note">Internal note</option>
+                    <option value="draft">Draft — not sent</option>
+                  </select>
+                </div>
+                <textarea
+                  rows={3}
+                  className="form-input"
+                  style={{ width: "100%", marginBottom: 8 }}
+                  placeholder="Write an internal note or draft for your team…"
+                  aria-label="New internal note or draft"
+                  value={noteDraft}
+                  onChange={(e) => setNoteDraft(e.target.value)}
+                />
+                <button
+                  type="button"
+                  className="btn btn-outline btn-sm"
+                  disabled={notePending || !selectedId}
+                  onClick={handleSaveNote}
+                >
+                  Save to workspace
+                </button>
+              </section>
               <div className="chat-compose">
                 <textarea
                   rows={2}
                   placeholder="External sending is not available yet"
-                  aria-label="Message"
+                  aria-label="Outbound message (disabled)"
                   disabled
                 />
-                <button type="button" className="btn btn-primary" disabled title="LinkedIn sending is not implemented">
+                <button type="button" className="btn btn-primary" disabled title="LinkedIn sending is not implemented" aria-disabled="true">
                   Send
                 </button>
               </div>
               <p className="form-hint" style={{ padding: "8px 16px", margin: 0 }}>
-                Send does not deliver to LinkedIn. Messages appear only when stored in your workspace database.
+                Send does not deliver to LinkedIn. Thread messages appear only from sync or future sending features—not from internal notes above.
               </p>
             </div>
           ) : (

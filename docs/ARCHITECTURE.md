@@ -58,9 +58,10 @@ RLS enabled on all tenant tables. Membership reads use `is_workspace_member()` /
 ### Unibox (persistence foundation)
 
 - Tables: `conversations`, `messages` — migration `20260222150000_unibox_conversations.sql`.
-- Optional `lead_id` with composite FK; messages ordered by `sent_at`.
+- Internal notes/drafts: `unibox_internal_notes` — migration `20260222160000_unibox_internal_notes.sql` (`kind`: `note` | `draft`). These rows are **not** messages: no `direction`, `sent_at`, or delivery state. They may attach to a `conversation_id` and/or `lead_id` (lead-only notes do not create a fake conversation).
+- Optional `lead_id` on conversations with composite FK; thread messages ordered by `sent_at`.
 - Server-only: `src/lib/unibox/repository.ts`; actions: `src/app/(app)/unibox/actions.ts`.
-- **No LinkedIn sync or external send** — compose UI disabled in live mode; `saveLocalMessageAction` stores workspace-local notes only.
+- **No LinkedIn sync or external send** — outbound compose stays disabled in live mode; internal notes use **Save to workspace** only.
 
 ### Insights (dashboard & analytics)
 

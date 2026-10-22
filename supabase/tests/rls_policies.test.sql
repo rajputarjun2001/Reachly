@@ -7,7 +7,7 @@
 
 begin;
 
-select plan(6);
+select plan(7);
 
 select ok(
   exists (
@@ -59,6 +59,16 @@ select ok(
     where schemaname = 'public' and tablename = 'conversations' and policyname = 'conversations_select'
   ),
   'conversations_select policy exists'
+);
+
+select ok(
+  exists (
+    select 1 from pg_policies
+    where schemaname = 'public'
+      and tablename = 'unibox_internal_notes'
+      and policyname = 'unibox_internal_notes_select'
+  ),
+  'unibox_internal_notes_select policy exists'
 );
 
 select finish();
