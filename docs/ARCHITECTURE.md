@@ -46,9 +46,18 @@ RLS enabled on all tenant tables. Membership reads use `is_workspace_member()` /
 - Cross-workspace list assignment blocked by composite FK `(lead_list_id, workspace_id)` and trigger `enforce_lead_workspace_from_list`.
 - CSV import: client upload → Server Action → `parseLeadsCsv` → chunked RPC `import_leads_to_list` (transactional per chunk).
 
+### Campaigns domain (configuration only)
+
+- Tables: `campaigns`, `campaign_steps` — migration `20260222140000_campaigns_and_steps.sql`.
+- Status lifecycle: `draft`, `active`, `paused`, `archived` (configuration/lifecycle — **no message sending**).
+- Step types: `connection_request`, `message` with JSON `configuration` (`label`, `body_template`, `delay_days`).
+- Server-only: `src/lib/campaigns/repository.ts`; actions: `src/app/(app)/campaigns/actions.ts`.
+- UI: `campaigns-live-view.tsx`, `campaign-detail-live.tsx`, `campaign-wizard-modal.tsx` when Supabase + workspace; `force-dynamic` on `/campaigns` routes.
+- Composite FK prevents cross-workspace lead list assignment.
+
 ## Demo data boundary
 
-`src/data/demo/*` powers dashboard/campaigns UI and the **leads demo preview** (toggle + banner). Live leads never read from demo modules. Banners state clearly that demo metrics are **not** persisted customer data.
+`src/data/demo/*` powers **dashboard** metrics and demo preview for unconfigured Supabase. Live leads and campaigns never read demo modules when authenticated.
 
 ## Implemented vs planned
 
@@ -58,5 +67,5 @@ RLS enabled on all tenant tables. Membership reads use `is_workspace_member()` /
 | Supabase Auth (email/password) | Implemented |
 | Workspace bootstrap + RLS | Implemented (apply migrations) |
 | Lead lists + leads persistence | Implemented (migration `20260222130000_lead_lists_and_leads.sql`) |
-| Campaign persistence | Planned |
+| Campaign configuration persistence | Implemented (no execution/sending) |
 | LinkedIn integration | Planned |

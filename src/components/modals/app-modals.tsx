@@ -1,93 +1,23 @@
 "use client";
 
-import { useState } from "react";
 import { useModals } from "@/context/modal-context";
+import { CampaignWizardModal } from "@/components/campaigns/campaign-wizard-modal";
 import { ModalShell } from "./modal-shell";
 
-export function AppModals() {
+type AppModalsProps = {
+  supabaseConfigured?: boolean;
+};
+
+export function AppModals({ supabaseConfigured = false }: AppModalsProps) {
   const { isOpen, closeModal } = useModals();
-  const [wizardTab, setWizardTab] = useState(0);
 
   return (
     <>
-      <ModalShell
+      <CampaignWizardModal
         open={isOpen("newCampaign")}
         onClose={() => closeModal("newCampaign")}
-        title="Create New Campaign"
-        size="xl"
-        footer={
-          <>
-            <button
-              type="button"
-              className="btn btn-outline"
-              onClick={() => closeModal("newCampaign")}
-            >
-              Cancel
-            </button>
-            <button type="button" className="btn btn-primary" disabled>
-              Next: Lead List → (demo)
-            </button>
-          </>
-        }
-      >
-        <div className="tabs" id="campaignWizardTabs">
-          {["1 · Basics", "2 · Lead List", "3 · Sequence", "4 · Review"].map((label, i) => (
-            <button
-              key={label}
-              type="button"
-              className={`tab${wizardTab === i ? " active" : ""}`}
-              onClick={() => setWizardTab(i)}
-              style={{ background: "none", border: "none", fontFamily: "inherit" }}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-        {wizardTab === 0 && (
-          <div id="cwp1">
-            <div className="form-group">
-              <label className="form-label" htmlFor="camp-name">Campaign Name</label>
-              <input
-                id="camp-name"
-                className="form-input"
-                placeholder="e.g. SaaS Founders - Oct 2026"
-              />
-            </div>
-            <div className="form-group">
-              <label className="form-label" htmlFor="camp-account">LinkedIn Account</label>
-              <select id="camp-account" className="form-input form-select">
-                <option>Ashish Dhingra (ashish@idesign.market)</option>
-              </select>
-            </div>
-            <div className="form-row">
-              <div className="form-group">
-                <label className="form-label" htmlFor="camp-limit">Daily Limit</label>
-                <select id="camp-limit" className="form-input form-select">
-                  <option>10 (Recommended)</option>
-                  <option>8</option>
-                  <option>6</option>
-                </select>
-              </div>
-              <div className="form-group">
-                <label className="form-label" htmlFor="camp-tz">Timezone</label>
-                <select id="camp-tz" className="form-input form-select">
-                  <option>Asia/Kolkata (IST)</option>
-                </select>
-              </div>
-            </div>
-            <div className="form-group">
-              <label className="form-label" htmlFor="camp-goal">Campaign Goal (optional)</label>
-              <input id="camp-goal" className="form-input" placeholder="e.g. Book product demo calls" />
-            </div>
-          </div>
-        )}
-        {wizardTab !== 0 && (
-          <p className="form-hint" style={{ marginTop: 8 }}>
-            Demo preview: additional wizard steps will be implemented with backend campaign
-            configuration in a later milestone.
-          </p>
-        )}
-      </ModalShell>
+        liveMode={supabaseConfigured}
+      />
 
       <ModalShell
         open={isOpen("addAccount")}

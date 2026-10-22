@@ -26,4 +26,15 @@ describe("supabase migrations", () => {
     expect(sql).toMatch(/is_workspace_member\(workspace_id\)/i);
     expect(sql).not.toMatch(/using\s*\(\s*true\s*\)/i);
   });
+
+  it("defines campaigns with workspace isolation", () => {
+    const sql = readFileSync(
+      join(process.cwd(), "supabase/migrations/20260222140000_campaigns_and_steps.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/create table public\.campaigns/i);
+    expect(sql).toMatch(/campaigns_lead_list_workspace_fk/i);
+    expect(sql).toMatch(/campaign_steps_campaign_workspace_fk/i);
+    expect(sql).toMatch(/is_workspace_member\(workspace_id\)/i);
+  });
 });

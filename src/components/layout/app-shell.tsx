@@ -11,6 +11,7 @@ type AppShellProps = {
   workspacePlan: string;
   workspaceInitials: string;
   showSignOut?: boolean;
+  supabaseConfigured?: boolean;
 };
 
 export function AppShell({
@@ -19,6 +20,7 @@ export function AppShell({
   workspacePlan,
   workspaceInitials,
   showSignOut,
+  supabaseConfigured,
 }: AppShellProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -50,7 +52,7 @@ export function AppShell({
         </button>
         {children}
       </main>
-      <AppModals />
+      <AppModals supabaseConfigured={supabaseConfigured} />
     </div>
   );
 }

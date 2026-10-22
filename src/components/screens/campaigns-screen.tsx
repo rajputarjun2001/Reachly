@@ -22,6 +22,9 @@ export function CampaignsPopulated() {
 
   return (
     <>
+      <p className="form-hint" style={{ padding: "8px 24px 0", margin: 0 }}>
+        Demo preview — sample campaigns are not stored. Sign in with Supabase configured for real campaigns.
+      </p>
       <div className="header">
         <div>
           <div className="header-title">Campaigns</div>

@@ -7,7 +7,7 @@
 
 begin;
 
-select plan(4);
+select plan(5);
 
 select ok(
   exists (
@@ -43,6 +43,14 @@ select ok(
     where n.nspname = 'public' and c.relname = 'leads' and c.relrowsecurity
   ),
   'RLS enabled on leads'
+);
+
+select ok(
+  exists (
+    select 1 from pg_policies
+    where schemaname = 'public' and tablename = 'campaigns' and policyname = 'campaigns_select'
+  ),
+  'campaigns_select policy exists'
 );
 
 select finish();

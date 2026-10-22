@@ -31,6 +31,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         workspacePlan={workspacePlan}
         workspaceInitials={initialsFromName(workspaceName)}
         showSignOut={configured}
+        supabaseConfigured={configured}
       >
         {children}
       </AppShell>

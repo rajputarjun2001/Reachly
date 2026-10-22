@@ -18,7 +18,7 @@
 
 ### Database
 
-- Row Level Security **enabled** on `profiles`, `workspaces`, `workspace_members`, `lead_lists`, `leads`.
+- Row Level Security **enabled** on `profiles`, `workspaces`, `workspace_members`, `lead_lists`, `leads`, `campaigns`, `campaign_steps`.
 - No `USING (true)` policies on tenant data.
 - Workspace creation only through `create_initial_workspace()` (`SECURITY DEFINER`, `search_path = public`).
 - Users cannot insert arbitrary `workspace_members` rows via client policies.
@@ -30,6 +30,13 @@
 - Middleware requires workspace membership before app routes (when Supabase configured).
 - Lead writes never accept client `workspace_id`; repository uses membership-derived workspace.
 - Leads cannot reference a list in another workspace (composite FK + trigger).
+
+### Campaigns (configuration only)
+
+- Campaigns and steps are workspace-scoped; `lead_list_id` uses composite FK with `lead_lists`.
+- `campaign_steps` must match parent campaign `workspace_id` (trigger + FK).
+- Campaign delete restricted to `owner` / `admin` (same pattern as lead list delete).
+- **Active** status does not start outreach — no workers or external APIs in this release.
 
 ### Leads and CSV import
 

@@ -27,7 +27,7 @@
 
 - [x] Initial migrations + RLS for profiles/workspaces/members
 - [x] Lead lists + leads with `workspace_id` and cross-list FK enforcement
-- [ ] Campaign tables with `workspace_id`
+- [x] Campaign + campaign_steps tables with `workspace_id`
 
 ## Phase 5 — Lead management and CSV processing
 
@@ -36,7 +36,9 @@
 
 ## Phase 6 — Campaign configuration and lifecycle
 
-- Full wizard, sequence editor, scheduling, pause/resume
+- [x] Campaign list/detail wired to Supabase; wizard saves draft + sequence
+- [x] Status pause/resume/archive (configuration only)
+- [ ] Outreach execution, scheduling workers, LinkedIn account binding
 
 ## Phase 7 — Inbox and conversation workflows
 
