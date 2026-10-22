@@ -7,10 +7,13 @@ export function LeadsPopulated() {
   const { openModal } = useModals();
   return (
     <>
+      <p className="form-hint" style={{ padding: "8px 24px 0", margin: 0 }}>
+        Demo preview — sample data is not stored. Configure Supabase and sign in for real lead lists.
+      </p>
       <div className="header">
         <div>
           <div className="header-title">Lead Lists</div>
-          <div className="header-sub">4 lists · 930 total leads</div>
+          <div className="header-sub">4 lists · 930 total leads (demo)</div>
         </div>
         <button type="button" className="btn btn-primary" onClick={() => openModal("uploadLeads")}>
           ＋ Upload CSV

@@ -1,8 +1,11 @@
 "use server";
 
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+import { WORKSPACE_READY_COOKIE, workspaceReadyCookieOptions } from "@/lib/auth/workspace-cookie";
 import { createClientIfConfigured } from "@/lib/supabase/server";
 import { getSafeRedirectPath } from "@/lib/auth/redirect";
+import { signUpErrorMessage } from "@/lib/auth/errors";
 import { isSupabaseConfigured } from "@/lib/env";
 
 const GENERIC_AUTH_ERROR = "Unable to sign in. Check your email and password.";
@@ -65,17 +68,26 @@ export async function signUpAction(
     return { error: "Supabase is not configured." };
   }
 
-  const { error } = await supabase.auth.signUp({
+  const siteUrl = (process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000").replace(/\/$/, "");
+
+  const { data, error } = await supabase.auth.signUp({
     email,
     password,
     options: {
       data: displayName ? { display_name: displayName } : undefined,
-      emailRedirectTo: `${process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000"}/auth/callback`,
+      emailRedirectTo: `${siteUrl}/auth/callback`,
     },
   });
 
   if (error) {
-    return { error: "Unable to create account. Try a different email or password." };
+    return { error: signUpErrorMessage(error) };
+  }
+
+  if (data.user?.identities?.length === 0) {
+    return {
+      error:
+        "An account with this email may already exist. Try signing in, or use forgot password if you cannot sign in.",
+    };
   }
 
   return {
@@ -161,6 +173,9 @@ export async function createWorkspaceAction(
   if (error) {
     return { error: "Unable to create workspace. Please try again." };
   }
+
+  const cookieStore = await cookies();
+  cookieStore.set(WORKSPACE_READY_COOKIE, "1", workspaceReadyCookieOptions);
 
   redirect("/dashboard");
 }

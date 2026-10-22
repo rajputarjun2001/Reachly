@@ -1,6 +1,7 @@
+import { createServerClient } from "@supabase/ssr";
 import { type NextRequest, NextResponse } from "next/server";
-import { updateSession } from "@/lib/supabase/middleware";
-import { isSupabaseConfigured } from "@/lib/env";
+import { WORKSPACE_READY_COOKIE, workspaceReadyCookieOptions } from "@/lib/auth/workspace-cookie";
+import { getSupabasePublicEnv, isSupabaseConfigured } from "@/lib/env";
 
 const AUTH_ROUTES = ["/login", "/signup", "/forgot-password", "/reset-password"];
 const PUBLIC_PREFIXES = ["/auth/", "/setup"];
@@ -33,23 +34,25 @@ function isProtectedAppRoute(pathname: string) {
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  const sessionResponse = await updateSession(request);
+  let response = NextResponse.next({ request });
 
   if (!isSupabaseConfigured()) {
-    return sessionResponse;
+    return response;
   }
 
-  const { createServerClient } = await import("@supabase/ssr");
-  const env = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+  const env = getSupabasePublicEnv()!;
 
-  const supabase = createServerClient(env, anonKey, {
+  const supabase = createServerClient(env.url, env.anonKey, {
     cookies: {
       getAll() {
         return request.cookies.getAll();
       },
-      setAll() {
-        // refreshed in updateSession
+      setAll(cookiesToSet) {
+        cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
+        response = NextResponse.next({ request });
+        cookiesToSet.forEach(({ name, value, options }) => {
+          response.cookies.set(name, value, options);
+        });
       },
     },
   });
@@ -71,15 +74,21 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  if (user && pathname === "/workspace/setup") {
+  const hasWorkspaceCookie = request.cookies.get(WORKSPACE_READY_COOKIE)?.value === "1";
+
+  async function userHasWorkspace(): Promise<boolean> {
     const { data: membership } = await supabase
       .from("workspace_members")
       .select("workspace_id")
-      .eq("user_id", user.id)
+      .eq("user_id", user!.id)
       .limit(1)
       .maybeSingle();
+    return Boolean(membership?.workspace_id);
+  }
 
-    if (membership?.workspace_id) {
+  if (user && pathname === "/workspace/setup") {
+    if (hasWorkspaceCookie || (await userHasWorkspace())) {
+      response.cookies.set(WORKSPACE_READY_COOKIE, "1", workspaceReadyCookieOptions);
       const url = request.nextUrl.clone();
       url.pathname = "/dashboard";
       return NextResponse.redirect(url);
@@ -87,21 +96,23 @@ export async function middleware(request: NextRequest) {
   }
 
   if (user && isProtectedAppRoute(pathname) && pathname !== "/workspace/setup") {
-    const { data: membership } = await supabase
-      .from("workspace_members")
-      .select("workspace_id")
-      .eq("user_id", user.id)
-      .limit(1)
-      .maybeSingle();
+    let hasWorkspace = hasWorkspaceCookie;
+    if (!hasWorkspace) {
+      hasWorkspace = await userHasWorkspace();
+      if (hasWorkspace) {
+        response.cookies.set(WORKSPACE_READY_COOKIE, "1", workspaceReadyCookieOptions);
+      }
+    }
 
-    if (!membership?.workspace_id) {
+    if (!hasWorkspace) {
+      response.cookies.delete(WORKSPACE_READY_COOKIE);
       const url = request.nextUrl.clone();
       url.pathname = "/workspace/setup";
       return NextResponse.redirect(url);
     }
   }
 
-  return sessionResponse;
+  return response;
 }
 
 export const config = {

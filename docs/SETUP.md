@@ -39,7 +39,11 @@ If variables are missing, the app still starts: visit `/setup` for status. Authe
 2. Under **Authentication → URL configuration**, add:
    - Site URL: `http://localhost:3000` (or your dev URL)
    - Redirect URLs: `http://localhost:3000/auth/callback`, `http://localhost:3000/reset-password`
-3. Enable Email provider; configure email confirmation per your environment (on for production, optional locally).
+3. Enable **Email** provider under Authentication → Providers.
+4. **URL configuration** (required for sign-up links):
+   - Site URL: `http://localhost:3000`
+   - Redirect URLs: `http://localhost:3000/auth/callback`, `http://localhost:3000/reset-password`
+5. **Local sign-up troubleshooting:** If sign-up fails with a confirmation/email error, either disable **Confirm email** on the Email provider (common for local dev) or configure SMTP. The sign-up form shows the Supabase error message in development.
 
 ## 4. Apply migrations
 
@@ -57,7 +61,32 @@ supabase start
 supabase db reset
 ```
 
-Migration file: `supabase/migrations/20260222120000_initial_auth_workspace.sql`
+Migrations (apply in order):
+
+- `supabase/migrations/20260222120000_initial_auth_workspace.sql`
+- `supabase/migrations/20260222130000_lead_lists_and_leads.sql`
+
+After migrations, sign in and open **Leads** to import CSV lists.
+
+### CSV import (Leads page)
+
+| Column | Required | Notes |
+|--------|----------|--------|
+| `linkedin_url` | Yes | Normalized URL; must be a `linkedin.com` profile URL |
+| `first_name`, `last_name` | No | |
+| `email` | No | Lowercased; invalid emails reject the row |
+| `company` | No | |
+| `title` / `job_title` | No | |
+
+Limits: **2MB** file, **2000** data rows per import. Duplicates within the file are skipped; existing workspace leads with the same `linkedin_url` are skipped (not updated).
+
+Run database policy smoke tests (local Supabase only):
+
+```bash
+supabase start
+supabase db reset
+supabase db test
+```
 
 ## 5. Run the app
 

@@ -137,7 +137,7 @@ export function AppModals() {
       <ModalShell
         open={isOpen("uploadLeads")}
         onClose={() => closeModal("uploadLeads")}
-        title="Upload Lead List"
+        title="Upload Lead List (demo preview)"
         footer={
           <>
             <button type="button" className="btn btn-outline" onClick={() => closeModal("uploadLeads")}>
@@ -149,6 +149,9 @@ export function AppModals() {
           </>
         }
       >
+        <p className="form-hint" style={{ marginBottom: 12 }}>
+          Demo UI only — not saved. Sign in with Supabase configured to import real lead lists on the Leads page.
+        </p>
         <div className="form-group">
           <label className="form-label" htmlFor="list-name">List Name</label>
           <input id="list-name" className="form-input" placeholder="e.g. SaaS Founders Q4" />

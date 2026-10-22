@@ -26,11 +26,13 @@
 ## Phase 4 — Database schema, authorization, tenant isolation
 
 - [x] Initial migrations + RLS for profiles/workspaces/members
-- [ ] Domain tables (campaigns, leads) with `workspace_id`
+- [x] Lead lists + leads with `workspace_id` and cross-list FK enforcement
+- [ ] Campaign tables with `workspace_id`
 
 ## Phase 5 — Lead management and CSV processing
 
-- Upload pipeline, validation, deduplication, list CRUD
+- [x] Upload pipeline, validation, deduplication, list CRUD (Leads page + Server Actions)
+- [ ] Lead export download, richer in-app edit forms
 
 ## Phase 6 — Campaign configuration and lifecycle
 

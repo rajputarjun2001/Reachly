@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { createClientIfConfigured } from "@/lib/supabase/server";
 import { isSupabaseConfigured } from "@/lib/env";
 
@@ -12,7 +13,7 @@ export type WorkspaceContext = {
   role: WorkspaceRole;
 };
 
-export async function getWorkspaceContext(): Promise<WorkspaceContext | null> {
+export const getWorkspaceContext = cache(async (): Promise<WorkspaceContext | null> => {
   if (!isSupabaseConfigured()) return null;
 
   const supabase = await createClientIfConfigured();
@@ -51,7 +52,7 @@ export async function getWorkspaceContext(): Promise<WorkspaceContext | null> {
     workspaceSlug: workspace.slug,
     role: membership.role as WorkspaceRole,
   };
-}
+});
 
 export async function requireWorkspaceContext(): Promise<WorkspaceContext> {
   const ctx = await getWorkspaceContext();

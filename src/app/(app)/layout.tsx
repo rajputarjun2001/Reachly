@@ -25,10 +25,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   return (
     <AppProviders>
-      <DemoEnvironmentBanner
-        supabaseConfigured={configured}
-        workspaceName={workspace?.workspaceName}
-      />
+      <DemoEnvironmentBanner supabaseConfigured={configured} />
       <AppShell
         workspaceName={workspaceName}
         workspacePlan={workspacePlan}

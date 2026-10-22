@@ -74,6 +74,7 @@ export function Sidebar({
             <Link
               key={item.href}
               href={item.href}
+              prefetch
               className={cn("nav-item", active && "active")}
               style={{ textDecoration: "none" }}
             >
@@ -95,6 +96,7 @@ export function Sidebar({
             <Link
               key={item.href}
               href={item.href}
+              prefetch
               className={cn("nav-item", active && "active")}
               style={{ textDecoration: "none" }}
             >

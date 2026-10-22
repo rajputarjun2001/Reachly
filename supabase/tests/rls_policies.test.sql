@@ -7,7 +7,7 @@
 
 begin;
 
-select plan(1);
+select plan(4);
 
 select ok(
   exists (
@@ -18,6 +18,31 @@ select ok(
       and policyname = 'profiles_select_own'
   ),
   'profiles_select_own policy exists'
+);
+
+select ok(
+  exists (
+    select 1 from pg_policies
+    where schemaname = 'public' and tablename = 'lead_lists' and policyname = 'lead_lists_select'
+  ),
+  'lead_lists_select policy exists'
+);
+
+select ok(
+  exists (
+    select 1 from pg_policies
+    where schemaname = 'public' and tablename = 'leads' and policyname = 'leads_select'
+  ),
+  'leads_select policy exists'
+);
+
+select ok(
+  exists (
+    select 1 from pg_class c
+    join pg_namespace n on n.oid = c.relnamespace
+    where n.nspname = 'public' and c.relname = 'leads' and c.relrowsecurity
+  ),
+  'RLS enabled on leads'
 );
 
 select finish();
