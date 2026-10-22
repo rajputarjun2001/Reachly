@@ -66,6 +66,7 @@ Migrations (apply in order):
 - `supabase/migrations/20260222120000_initial_auth_workspace.sql`
 - `supabase/migrations/20260222130000_lead_lists_and_leads.sql`
 - `supabase/migrations/20260222140000_campaigns_and_steps.sql`
+- `supabase/migrations/20260222150000_unibox_conversations.sql`
 
 After migrations, sign in and open **Leads** to import CSV lists. The Leads route is **server-rendered per request** (`force-dynamic`) so authenticated users never receive the static demo preview.
 

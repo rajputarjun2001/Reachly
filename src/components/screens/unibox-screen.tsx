@@ -12,6 +12,9 @@ export function UniboxPopulated() {
 
   return (
     <>
+      <p className="form-hint" style={{ padding: "8px 24px 0", margin: 0 }}>
+        Demo preview — sample conversations are not stored. Sign in with Supabase for your workspace Unibox.
+      </p>
       <div className="header">
         <div>
           <div className="header-title">Unibox</div>

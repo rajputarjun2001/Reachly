@@ -7,7 +7,7 @@
 
 begin;
 
-select plan(5);
+select plan(6);
 
 select ok(
   exists (
@@ -51,6 +51,14 @@ select ok(
     where schemaname = 'public' and tablename = 'campaigns' and policyname = 'campaigns_select'
   ),
   'campaigns_select policy exists'
+);
+
+select ok(
+  exists (
+    select 1 from pg_policies
+    where schemaname = 'public' and tablename = 'conversations' and policyname = 'conversations_select'
+  ),
+  'conversations_select policy exists'
 );
 
 select finish();

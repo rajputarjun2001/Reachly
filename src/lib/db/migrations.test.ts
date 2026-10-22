@@ -37,4 +37,16 @@ describe("supabase migrations", () => {
     expect(sql).toMatch(/campaign_steps_campaign_workspace_fk/i);
     expect(sql).toMatch(/is_workspace_member\(workspace_id\)/i);
   });
+
+  it("defines unibox tables with workspace isolation", () => {
+    const sql = readFileSync(
+      join(process.cwd(), "supabase/migrations/20260222150000_unibox_conversations.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/create table public\.conversations/i);
+    expect(sql).toMatch(/create table public\.messages/i);
+    expect(sql).toMatch(/messages_conversation_workspace_fk/i);
+    expect(sql).toMatch(/conversations_lead_workspace_fk/i);
+    expect(sql).toMatch(/leads_id_workspace_uidx/i);
+  });
 });

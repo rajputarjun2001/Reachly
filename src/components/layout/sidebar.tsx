@@ -19,7 +19,7 @@ const mainNav = [
   { href: appRoutes.dashboard, label: "Dashboard", icon: LayoutGrid },
   { href: appRoutes.campaigns, label: "Campaigns", icon: Megaphone },
   { href: appRoutes.leads, label: "Lead Lists", icon: Users },
-  { href: appRoutes.unibox, label: "Unibox", icon: MessageSquare, badge: 5 },
+  { href: appRoutes.unibox, label: "Unibox", icon: MessageSquare, demoBadge: 5 },
 ] as const;
 
 const accountNav = [
@@ -34,6 +34,7 @@ type SidebarProps = {
   workspacePlan: string;
   workspaceInitials: string;
   showSignOut?: boolean;
+  supabaseConfigured?: boolean;
 };
 
 function isActive(pathname: string, href: string) {
@@ -49,6 +50,7 @@ export function Sidebar({
   workspacePlan,
   workspaceInitials,
   showSignOut,
+  supabaseConfigured,
 }: SidebarProps) {
   const pathname = usePathname();
   const { emptyMode, toggleEmptyMode } = usePreviewMode();
@@ -80,8 +82,8 @@ export function Sidebar({
             >
               <Icon size={16} strokeWidth={2} aria-hidden />
               {item.label}
-              {"badge" in item && item.badge ? (
-                <span className="nav-badge">{item.badge}</span>
+              {"demoBadge" in item && item.demoBadge && !supabaseConfigured ? (
+                <span className="nav-badge">{item.demoBadge}</span>
               ) : null}
             </Link>
           );

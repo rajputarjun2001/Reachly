@@ -42,7 +42,8 @@
 
 ## Phase 7 — Inbox and conversation workflows
 
-- Unibox sync, compose/send with audit trail
+- [x] Unibox schema + workspace persistence (no external sync)
+- [ ] LinkedIn reply sync, external send, audit trail
 
 ## Phase 8 — Supported integrations and background processing
 

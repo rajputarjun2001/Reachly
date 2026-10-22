@@ -31,6 +31,12 @@
 - Lead writes never accept client `workspace_id`; repository uses membership-derived workspace.
 - Leads cannot reference a list in another workspace (composite FK + trigger).
 
+### Unibox
+
+- RLS on `conversations` and `messages`; composite FKs prevent cross-workspace threads.
+- Message body max 8000 chars; do not log message content in application logs.
+- Delete restricted to owner/admin on conversations/messages (same as other admin deletes).
+
 ### Campaigns (configuration only)
 
 - Campaigns and steps are workspace-scoped; `lead_list_id` uses composite FK with `lead_lists`.

@@ -32,6 +32,7 @@ export function AppShell({
         workspacePlan={workspacePlan}
         workspaceInitials={workspaceInitials}
         showSignOut={showSignOut}
+        supabaseConfigured={supabaseConfigured}
       />
       <main className="main">
         <button

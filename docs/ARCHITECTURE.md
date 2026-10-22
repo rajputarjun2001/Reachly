@@ -55,6 +55,13 @@ RLS enabled on all tenant tables. Membership reads use `is_workspace_member()` /
 - UI: `campaigns-live-view.tsx`, `campaign-detail-live.tsx`, `campaign-wizard-modal.tsx` when Supabase + workspace; `force-dynamic` on `/campaigns` routes.
 - Composite FK prevents cross-workspace lead list assignment.
 
+### Unibox (persistence foundation)
+
+- Tables: `conversations`, `messages` — migration `20260222150000_unibox_conversations.sql`.
+- Optional `lead_id` with composite FK; messages ordered by `sent_at`.
+- Server-only: `src/lib/unibox/repository.ts`; actions: `src/app/(app)/unibox/actions.ts`.
+- **No LinkedIn sync or external send** — compose UI disabled in live mode; `saveLocalMessageAction` stores workspace-local notes only.
+
 ### Insights (dashboard & analytics)
 
 - Server-only: `src/lib/insights/repository.ts` (`getDashboardInsights`, `getAnalyticsInsights`).
