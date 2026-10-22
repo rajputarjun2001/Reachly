@@ -2,7 +2,7 @@
 
 ## Overview
 
-Single Next.js application (modular monolith). Server Components and middleware enforce authentication when Supabase is configured. Dashboard and campaigns remain demo-data driven; **leads and lead lists** persist per workspace when Supabase is configured and the user is signed in.
+Single Next.js application (modular monolith). Server Components and middleware enforce authentication when Supabase is configured. **Leads, campaigns, dashboard, and analytics** load workspace data when Supabase is configured; outreach *performance* metrics are not stored yet (see `docs/TASK006_METRICS.md`).
 
 ## Routing
 
@@ -55,9 +55,15 @@ RLS enabled on all tenant tables. Membership reads use `is_workspace_member()` /
 - UI: `campaigns-live-view.tsx`, `campaign-detail-live.tsx`, `campaign-wizard-modal.tsx` when Supabase + workspace; `force-dynamic` on `/campaigns` routes.
 - Composite FK prevents cross-workspace lead list assignment.
 
+### Insights (dashboard & analytics)
+
+- Server-only: `src/lib/insights/repository.ts` (`getDashboardInsights`, `getAnalyticsInsights`).
+- UI: `dashboard-live-view.tsx`, `analytics-live-view.tsx`; routes use `force-dynamic`.
+- Metric definitions: `docs/TASK006_METRICS.md`.
+
 ## Demo data boundary
 
-`src/data/demo/*` powers **dashboard** metrics and demo preview for unconfigured Supabase. Live leads and campaigns never read demo modules when authenticated.
+`src/data/demo/*` powers **preview mode only** when Supabase is not configured. Authenticated live routes do not import demo campaign metrics.
 
 ## Implemented vs planned
 

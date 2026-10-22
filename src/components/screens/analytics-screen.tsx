@@ -7,6 +7,9 @@ import { appRoutes } from "@/lib/routes";
 export function AnalyticsPopulated() {
   return (
     <>
+      <p className="form-hint" style={{ padding: "8px 24px 0", margin: 0 }}>
+        Demo preview — charts and rates are illustrative only. Sign in for workspace analytics.
+      </p>
       <div className="header">
         <div>
           <div className="header-title">Analytics</div>

@@ -50,7 +50,8 @@
 
 ## Phase 9 — Analytics, billing, audit logs, operations
 
-- Metrics aggregation, Stripe, admin tooling
+- [x] Workspace-scoped dashboard & analytics (counts/trends; no outreach performance)
+- [ ] Outreach performance metrics, Stripe, admin tooling
 
 ## Phase 10 — Security review, testing, deployment, production readiness
 

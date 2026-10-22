@@ -12,6 +12,9 @@ export function DashboardPopulated() {
 
   return (
     <>
+      <p className="form-hint" style={{ padding: "8px 24px 0", margin: 0 }}>
+        Demo preview — sample metrics and names are not real. Sign in with Supabase for your workspace dashboard.
+      </p>
       <div className="header">
         <div>
           <div className="header-title">Dashboard</div>

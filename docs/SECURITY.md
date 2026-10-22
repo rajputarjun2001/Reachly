@@ -50,7 +50,7 @@
 - No rate limiting on auth endpoints (rely on Supabase / edge in production).
 - RLS integration tests require local Supabase (`supabase db test`) — **not executed** in this environment unless CLI is installed and `supabase start` is running.
 - Migration SQL is statically tested in `src/lib/db/migrations.test.ts`; live RLS behavior is unverified until database tests run.
-- Demo UI still used for dashboard/campaigns after login; leads page uses real data when configured.
+- Dashboard/analytics use aggregated counts; time-series queries cap sampled rows (`LEAD_SAMPLE_CAP` in insights repository).
 - Team invitations, audit logs, and billing are out of scope.
 
 ## Verification
