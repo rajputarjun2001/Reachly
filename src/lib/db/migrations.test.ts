@@ -50,6 +50,20 @@ describe("supabase migrations", () => {
     expect(sql).toMatch(/leads_id_workspace_uidx/i);
   });
 
+  it("defines campaign execution tables and claim RPC", () => {
+    const sql = readFileSync(
+      join(process.cwd(), "supabase/migrations/20260222170000_campaign_execution.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/create table public\.campaign_enrollments/i);
+    expect(sql).toMatch(/create table public\.campaign_execution_jobs/i);
+    expect(sql).toMatch(/campaign_enrollments_active_lead_uidx/i);
+    expect(sql).toMatch(/unique \(workspace_id, idempotency_key\)/i);
+    expect(sql).toMatch(/claim_due_campaign_jobs/i);
+    expect(sql).toMatch(/for update of j skip locked/i);
+    expect(sql).toMatch(/is_workspace_member\(workspace_id\)/i);
+  });
+
   it("defines unibox internal notes separate from messages", () => {
     const sql = readFileSync(
       join(process.cwd(), "supabase/migrations/20260222160000_unibox_internal_notes.sql"),

@@ -7,6 +7,8 @@ import { isSupabaseConfigured } from "@/lib/env";
 import { getWorkspaceContext } from "@/lib/workspace/context";
 import { getCampaignById as getDemoCampaign } from "@/data/demo/campaigns";
 import { listLeadsForList } from "@/lib/leads/repository";
+import { getCampaignExecutionStats, CampaignExecutionError } from "@/lib/campaigns/execution/repository";
+import type { CampaignExecutionStats } from "@/lib/campaigns/execution/types";
 
 type Props = { params: Promise<{ id: string }> };
 
@@ -58,5 +60,20 @@ export default async function CampaignDetailPage({ params }: Props) {
     }
   }
 
-  return <CampaignDetailLive campaign={campaign} leadsPreview={leadsPreview} />;
+  let executionStats: CampaignExecutionStats | null = null;
+  try {
+    executionStats = await getCampaignExecutionStats(id);
+  } catch (err) {
+    if (!(err instanceof CampaignExecutionError && err.code === "SCHEMA_MISSING")) {
+      executionStats = null;
+    }
+  }
+
+  return (
+    <CampaignDetailLive
+      campaign={campaign}
+      leadsPreview={leadsPreview}
+      executionStats={executionStats}
+    />
+  );
 }

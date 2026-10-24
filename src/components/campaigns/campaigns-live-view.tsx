@@ -25,7 +25,10 @@ function statusBadge(status: CampaignSummary["status"]) {
   if (status === "paused") return { className: "badge badge-amber", label: "⏸ Paused" };
   if (status === "draft") return { className: "badge badge-gray", label: "Draft" };
   if (status === "archived") return { className: "badge badge-gray", label: "Archived" };
-  if (status === "active") return { className: "badge badge-green", label: "● Active (config)" };
+  if (status === "active") return { className: "badge badge-green", label: "● Running" };
+  if (status === "completed") return { className: "badge badge-green", label: "Completed" };
+  if (status === "cancelled") return { className: "badge badge-gray", label: "Cancelled" };
+  if (status === "failed") return { className: "badge badge-amber", label: "Failed" };
   return { className: "badge badge-gray", label: status };
 }
 

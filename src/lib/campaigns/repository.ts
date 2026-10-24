@@ -292,6 +292,9 @@ export async function replaceCampaignSteps(campaignId: string, steps: StepInput[
 
   const existing = await getCampaignById(campaignId);
   if (!existing) throw new CampaignDataError("Campaign not found", "NOT_FOUND");
+  if (existing.status === "active") {
+    throw new CampaignDataError("Pause the campaign before editing steps", "VALIDATION");
+  }
 
   const { error: delError } = await supabase
     .from("campaign_steps")

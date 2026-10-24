@@ -11,6 +11,7 @@ import {
   getWorkspaceGreetingName,
   InsightsDataError,
 } from "@/lib/insights/repository";
+import { emptyStatusCounts } from "@/lib/insights/aggregations";
 
 export const dynamic = "force-dynamic";
 
@@ -42,7 +43,7 @@ export default async function DashboardPage() {
         total_leads: 0,
         lead_list_count: 0,
         campaign_count: 0,
-        campaign_by_status: { draft: 0, active: 0, paused: 0, archived: 0 },
+        campaign_by_status: emptyStatusCounts(),
         recent_campaigns: [],
         leads_added_last_7_days: [],
       };
@@ -52,7 +53,7 @@ export default async function DashboardPage() {
         total_leads: 0,
         lead_list_count: 0,
         campaign_count: 0,
-        campaign_by_status: { draft: 0, active: 0, paused: 0, archived: 0 },
+        campaign_by_status: emptyStatusCounts(),
         recent_campaigns: [],
         leads_added_last_7_days: [],
       };

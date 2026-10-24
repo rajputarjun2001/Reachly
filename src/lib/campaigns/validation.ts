@@ -1,11 +1,10 @@
 import { CAMPAIGN_NAME_MAX, SUPPORTED_STEP_TYPES } from "./constants";
+import { canTransitionCampaignStatus, validateExtendedCampaignStatus } from "./execution/lifecycle";
 import type {
   CampaignStatus,
   CampaignStepConfiguration,
   CampaignStepType,
 } from "./types";
-
-const VALID_STATUSES: CampaignStatus[] = ["draft", "active", "paused", "archived"];
 
 export function validateCampaignName(name: string): string | null {
   const trimmed = name.trim();
@@ -14,17 +13,11 @@ export function validateCampaignName(name: string): string | null {
 }
 
 export function validateCampaignStatus(status: string): CampaignStatus | null {
-  return VALID_STATUSES.includes(status as CampaignStatus) ? (status as CampaignStatus) : null;
+  return validateExtendedCampaignStatus(status);
 }
 
 export function canTransitionStatus(from: CampaignStatus, to: CampaignStatus): boolean {
-  if (from === to) return true;
-  if (to === "archived") return true;
-  if (from === "archived") return false;
-  if (from === "draft" && (to === "active" || to === "paused")) return true;
-  if (from === "active" && to === "paused") return true;
-  if (from === "paused" && to === "active") return true;
-  return false;
+  return canTransitionCampaignStatus(from, to);
 }
 
 export function validateStepType(type: string): CampaignStepType | null {

@@ -1,4 +1,11 @@
-export type CampaignStatus = "draft" | "active" | "paused" | "archived";
+export type CampaignStatus =
+  | "draft"
+  | "active"
+  | "paused"
+  | "archived"
+  | "completed"
+  | "cancelled"
+  | "failed";
 
 export type CampaignStepType = "connection_request" | "message";
 

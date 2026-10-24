@@ -2,7 +2,15 @@ import type { CampaignStatus } from "@/lib/campaigns/types";
 import type { CampaignStatusCounts, DayCount } from "./types";
 
 export function emptyStatusCounts(): CampaignStatusCounts {
-  return { draft: 0, active: 0, paused: 0, archived: 0 };
+  return {
+    draft: 0,
+    active: 0,
+    paused: 0,
+    archived: 0,
+    completed: 0,
+    cancelled: 0,
+    failed: 0,
+  };
 }
 
 export function tallyStatuses(statuses: CampaignStatus[]): CampaignStatusCounts {

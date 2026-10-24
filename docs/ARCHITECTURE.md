@@ -49,7 +49,7 @@ RLS enabled on all tenant tables. Membership reads use `is_workspace_member()` /
 ### Campaigns domain (configuration only)
 
 - Tables: `campaigns`, `campaign_steps` — migration `20260222140000_campaigns_and_steps.sql`.
-- Status lifecycle: `draft`, `active`, `paused`, `archived` (configuration/lifecycle — **no message sending**).
+- Status lifecycle: `draft`, `active`, `paused`, `archived`, `completed`, `cancelled`, `failed` — see `docs/CAMPAIGN_EXECUTION.md` for the execution engine (**no LinkedIn send** by default).
 - Step types: `connection_request`, `message` with JSON `configuration` (`label`, `body_template`, `delay_days`).
 - Server-only: `src/lib/campaigns/repository.ts`; actions: `src/app/(app)/campaigns/actions.ts`.
 - UI: `campaigns-live-view.tsx`, `campaign-detail-live.tsx`, `campaign-wizard-modal.tsx` when Supabase + workspace; `force-dynamic` on `/campaigns` routes.
@@ -82,4 +82,4 @@ RLS enabled on all tenant tables. Membership reads use `is_workspace_member()` /
 | Workspace bootstrap + RLS | Implemented (apply migrations) |
 | Lead lists + leads persistence | Implemented (migration `20260222130000_lead_lists_and_leads.sql`) |
 | Campaign configuration persistence | Implemented (no execution/sending) |
-| LinkedIn integration | Planned |
+| LinkedIn integration | Planned — see `docs/LINKEDIN_INTEGRATION_FEASIBILITY.md` |

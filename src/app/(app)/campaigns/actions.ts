@@ -9,6 +9,16 @@ import {
   updateCampaign,
   CampaignDataError,
 } from "@/lib/campaigns/repository";
+import {
+  cancelCampaignExecution,
+  getCampaignExecutionStats,
+  pauseCampaignExecution,
+  processDueCampaignJobs,
+  resumeCampaignExecution,
+  startCampaignExecution,
+  CampaignExecutionError,
+} from "@/lib/campaigns/execution/repository";
+import type { CampaignExecutionStats } from "@/lib/campaigns/execution/types";
 import { DEFAULT_CAMPAIGN_STEPS } from "@/lib/campaigns/constants";
 import type { CampaignSettings } from "@/lib/campaigns/types";
 import { validateStepsInput } from "@/lib/campaigns/validation";
@@ -22,6 +32,7 @@ export type CampaignActionResult = {
 
 function mapError(err: unknown): string {
   if (err instanceof CampaignDataError) return err.message;
+  if (err instanceof CampaignExecutionError) return err.message;
   return "Something went wrong. Please try again.";
 }
 
@@ -131,6 +142,83 @@ export async function getLeadListsForCampaignAction(): Promise<{
     };
   } catch {
     return { error: "Could not load lead lists." };
+  }
+}
+
+export async function getCampaignExecutionStatsAction(campaignId: string): Promise<{
+  error?: string;
+  stats?: CampaignExecutionStats;
+}> {
+  if (!isSupabaseConfigured()) return { error: "Supabase is not configured." };
+  try {
+    const stats = await getCampaignExecutionStats(campaignId);
+    return { stats };
+  } catch (err) {
+    return { error: mapError(err) };
+  }
+}
+
+export async function startCampaignExecutionAction(campaignId: string): Promise<CampaignActionResult> {
+  if (!isSupabaseConfigured()) return { error: "Supabase is not configured." };
+  try {
+    const result = await startCampaignExecution(campaignId);
+    revalidatePath("/campaigns");
+    revalidatePath(`/campaigns/${campaignId}`);
+    return {
+      success: `Campaign started. Enrolled ${result.enrolled} lead(s); scheduled ${result.jobsCreated} job(s). LinkedIn delivery is not configured.`,
+    };
+  } catch (err) {
+    return { error: mapError(err) };
+  }
+}
+
+export async function pauseCampaignExecutionAction(campaignId: string): Promise<CampaignActionResult> {
+  if (!isSupabaseConfigured()) return { error: "Supabase is not configured." };
+  try {
+    await pauseCampaignExecution(campaignId);
+    revalidatePath("/campaigns");
+    revalidatePath(`/campaigns/${campaignId}`);
+    return { success: "Campaign paused. Pending jobs will not run." };
+  } catch (err) {
+    return { error: mapError(err) };
+  }
+}
+
+export async function resumeCampaignExecutionAction(campaignId: string): Promise<CampaignActionResult> {
+  if (!isSupabaseConfigured()) return { error: "Supabase is not configured." };
+  try {
+    await resumeCampaignExecution(campaignId);
+    revalidatePath("/campaigns");
+    revalidatePath(`/campaigns/${campaignId}`);
+    return { success: "Campaign resumed." };
+  } catch (err) {
+    return { error: mapError(err) };
+  }
+}
+
+export async function cancelCampaignExecutionAction(campaignId: string): Promise<CampaignActionResult> {
+  if (!isSupabaseConfigured()) return { error: "Supabase is not configured." };
+  try {
+    await cancelCampaignExecution(campaignId);
+    revalidatePath("/campaigns");
+    revalidatePath(`/campaigns/${campaignId}`);
+    return { success: "Campaign cancelled." };
+  } catch (err) {
+    return { error: mapError(err) };
+  }
+}
+
+export async function processDueCampaignJobsAction(campaignId?: string): Promise<CampaignActionResult> {
+  if (!isSupabaseConfigured()) return { error: "Supabase is not configured." };
+  try {
+    const { claimed, processed } = await processDueCampaignJobs({ workerId: "reachly-ui-worker", limit: 25 });
+    if (campaignId) revalidatePath(`/campaigns/${campaignId}`);
+    revalidatePath("/campaigns");
+    return {
+      success: `Processed ${processed} of ${claimed} claimed job(s). No LinkedIn messages were sent unless a future executor is enabled.`,
+    };
+  } catch (err) {
+    return { error: mapError(err) };
   }
 }
 

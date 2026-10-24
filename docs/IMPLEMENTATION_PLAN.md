@@ -38,7 +38,8 @@
 
 - [x] Campaign list/detail wired to Supabase; wizard saves draft + sequence
 - [x] Status pause/resume/archive (configuration only)
-- [ ] Outreach execution, scheduling workers, LinkedIn account binding
+- [x] Campaign execution foundation (enrollments, jobs, attempts — no LinkedIn send)
+- [ ] Outreach execution via approved LinkedIn executor, scheduling workers, LinkedIn account binding
 
 ## Phase 7 — Inbox and conversation workflows
 
@@ -48,7 +49,7 @@
 
 ## Phase 8 — Supported integrations and background processing
 
-- LinkedIn connection strategy, webhooks, HubSpot/Calendly/Slack
+- LinkedIn connection strategy — **feasibility:** `docs/LINKEDIN_INTEGRATION_FEASIBILITY.md`; webhooks, HubSpot/Calendly/Slack
 
 ## Phase 9 — Analytics, billing, audit logs, operations
 
