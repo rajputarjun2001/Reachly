@@ -1,9 +1,20 @@
+export type LeadStatus =
+  | "pending"
+  | "connection_sent"
+  | "connected"
+  | "msg1_sent"
+  | "msg2_sent"
+  | "msg3_sent"
+  | "replied"
+  | "skipped"
+  | "blacklisted";
+
 export type LeadListRow = {
   id: string;
   workspace_id: string;
   name: string;
   description: string | null;
-  created_by: string;
+  created_by: string | null;
   created_at: string;
   updated_at: string;
   lead_count?: number;
@@ -20,6 +31,7 @@ export type LeadRow = {
   job_title: string | null;
   linkedin_url: string | null;
   source: string;
+  status: LeadStatus;
   created_at: string;
   updated_at: string;
 };
@@ -31,7 +43,7 @@ export type LeadListSummary = LeadListRow & {
 export type ImportLeadsResult = {
   inserted: number;
   skipped: number;
-  invalid: number;
+  blacklisted: number;
 };
 
 export type PaginatedLeads = {

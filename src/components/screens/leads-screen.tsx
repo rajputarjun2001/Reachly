@@ -8,7 +8,7 @@ export function LeadsPopulated() {
   return (
     <>
       <p className="form-hint" style={{ padding: "8px 24px 0", margin: 0 }}>
-        Demo preview — sample data is not stored. Configure Supabase and sign in for real lead lists.
+        Demo preview — sample data is not stored. Configure MongoDB and sign in for real lead lists.
       </p>
       <div className="header">
         <div>

@@ -1,30 +1,39 @@
 # Reachly
 
-Reachly is a LinkedIn outreach workspace UI (demo/prototype). This repository implements the product shell and screens from the authoritative HTML reference in `design-reference/Reachly.html`.
+Reachly is a LinkedIn outreach workspace. This repository is a **single-process monolith**: the Next.js UI, the Express REST API, and background workers live together and share one MongoDB database.
+
+The visual source of truth is `design-reference/Reachly.html`.
 
 ## Stack
 
-- **Next.js 15** (App Router)
-- **TypeScript** (strict)
-- **Tailwind CSS** + extracted reference stylesheet (`src/styles/reachly-reference.css`)
-- **Chart.js** / react-chartjs-2 (charts from the reference)
-- **Lucide React** (sidebar icons aligned with reference strokes)
-- **Vitest** + React Testing Library
-- **Supabase** (Auth + PostgreSQL with RLS)
+| Layer | Choice |
+|-------|--------|
+| UI | Next.js 15 (App Router) + TypeScript + Tailwind + reference CSS |
+| API | Express, mounted at `/api` by the custom server (`server.ts`) |
+| Database | MongoDB (Mongoose) |
+| Queue | BullMQ + Redis |
+| Auth | JWT in an httpOnly cookie (`reachly_session`) |
+| Automation | Playwright (Chromium). Optional Docker isolation per LinkedIn account |
+
+Supabase is not used.
 
 ## Prerequisites
 
-- Node.js 20+
+- Node.js 22.12+
 - npm
-- Supabase project (for authentication — see `docs/SETUP.md`)
+- Docker Desktop (for local MongoDB + Redis via `npm run services:up`)
 
 ## Installation
 
 ```bash
 cd Reachly
 npm install
-cp .env.example .env.local
-# Edit .env.local with your Supabase URL and anon key
+cp .env.example .env
+# Generate secrets:
+#   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"  # JWT_SECRET
+#   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"  # ENCRYPTION_KEY
+npm run services:up
+npm run browsers:install   # one-time Chromium download for Playwright
 ```
 
 ## Development
@@ -33,54 +42,38 @@ cp .env.example .env.local
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) (redirects to `/dashboard`).
+Open [http://localhost:3000](http://localhost:3000). The same process serves `/api/*`.
 
-Compare with the reference: open `design-reference/Reachly.html` in a browser at the same viewport width (~1280px desktop).
+Without `MONGO_URI`, `JWT_SECRET`, and `ENCRYPTION_KEY`, the UI runs in **demo / preview mode** (`/setup` explains what is missing).
 
 ## Scripts
 
 | Command | Description |
 |---------|-------------|
-| `npm run dev` | Start dev server |
-| `npm run build` | Production build |
-| `npm run start` | Run production server |
-| `npm run lint` | ESLint (Next.js) |
-| `npm run typecheck` | `tsc --noEmit` |
-| `npm test` | Vitest unit tests |
+| `npm run dev` | Custom server: Next.js + `/api` + workers |
+| `npm run build` | Next.js production build + compile `server.ts` |
+| `npm run start` | Production server (`dist/server.js`) |
+| `npm run lint` | ESLint |
+| `npm run typecheck` | `tsc --noEmit` for the app and the server |
+| `npm test` | Vitest (UI + server) |
+| `npm run services:up` | Start MongoDB and Redis |
+| `npm run services:down` | Stop those containers |
+| `npm run browsers:install` | Download Playwright Chromium |
 
-## Authentication (Task 003)
+## What is live vs preview
 
-When `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` are set:
+When the backend env is set and you are signed in:
 
-- Sign in / sign up / password reset at `/login`, `/signup`, etc.
-- Protected app routes (middleware + session cookies via `@supabase/ssr`)
-- Workspace bootstrap at `/workspace/setup` after first login
+- Auth, workspace, lead lists, CSV import, campaigns, LinkedIn accounts, Unibox, and analytics read and write MongoDB through `server/domain/*`.
+- Campaign launch queues BullMQ jobs. Workers send via Playwright when Redis is up.
 
-Without Supabase env vars, the app runs in **demo mode** (`/setup` for instructions). Dashboard data remains sample-only.
-
-Apply database migrations: see `docs/SETUP.md`.
-
-## Implementation status (UI)
-
-**Implemented (UI demo):**
-
-- App shell: sidebar, header/content layout, design tokens from reference CSS
-- Routes: dashboard, campaigns, campaign detail, lead lists, LinkedIn accounts, Unibox, analytics, settings (7 panels), onboarding
-- Modals: new campaign, connect account (no passwords), upload leads, lead list detail
-- Preview toggle: populated vs empty states (sidebar control)
-- Charts on dashboard, campaign detail, analytics
-- Demo data under `src/data/demo/`
-
-**Not implemented (by design for this milestone):**
-
-- Authentication, database, billing, real LinkedIn integration, message sending, CSV import persistence
-
-See `docs/ARCHITECTURE.md` and `docs/IMPLEMENTATION_PLAN.md`.
+The sidebar **preview toggle** still shows sample data from `src/data/demo/` so the reference UI can be compared without a database.
 
 ## Documentation
 
-- `docs/DESIGN_REFERENCE_AUDIT.md` — reference inventory and route map
-- `docs/PRD.md` — product vision
-- `docs/ARCHITECTURE.md` — code structure
-- `docs/SECURITY.md` — security principles
-- `AGENTS.md` — conventions for AI/human contributors
+- `docs/SETUP.md` — local install
+- `docs/ARCHITECTURE.md` — how the monolith is wired
+- `docs/PRODUCTION.md` — modules 5–10 checklist and deploy steps
+- `docs/CAMPAIGN_EXECUTION.md` — BullMQ queues and campaign lifecycle
+- `docs/SECURITY.md` — secrets, sessions, LinkedIn credentials
+- `AGENTS.md` — conventions for contributors

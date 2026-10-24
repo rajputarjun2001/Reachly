@@ -2,84 +2,75 @@
 
 ## Overview
 
-Single Next.js application (modular monolith). Server Components and middleware enforce authentication when Supabase is configured. **Leads, campaigns, dashboard, and analytics** load workspace data when Supabase is configured; outreach *performance* metrics are not stored yet (see `docs/TASK006_METRICS.md`).
+One repository, one process. `server.ts` boots Next.js, mounts the Express app on `/api`, connects to MongoDB, and optionally starts BullMQ workers.
 
-## Routing
+There is no separate backend repo and no Supabase. Next.js Server Actions call the same domain functions as the REST routes (`server/domain/*`). Both share Mongoose models in `server/models/`.
+
+## Request paths
 
 | Path | Access |
 |------|--------|
-| `/login`, `/signup`, `/forgot-password`, `/reset-password` | Public (auth UI) |
-| `/auth/callback` | OAuth / email confirm code exchange |
-| `/auth/signout` | POST — clears session |
-| `/setup` | Public — configuration status |
-| `/workspace/setup` | Authenticated users without a workspace |
-| `/dashboard`, `/campaigns`, … | Protected when Supabase configured |
-| `/onboarding` | Legacy demo onboarding (unchanged UI) |
+| `/login`, `/signup`, `/forgot-password`, `/invite` | Public auth UI |
+| `/auth/signout` | Clears the session cookie |
+| `/setup` | Public — backend configuration status |
+| `/workspace/setup` | Signed-in users who do not yet have a workspace |
+| `/dashboard`, `/campaigns`, `/leads`, `/accounts`, `/unibox`, `/analytics`, `/settings` | Protected when env is configured |
+| `/api/*` | Express REST API (JWT via `Authorization: Bearer` or, for the UI, the session cookie is used only on Server Actions) |
 
-Route group `(app)` wraps `AppShell` + demo screens.
+## Authentication
 
-## Authentication flow
+1. Sign-up / sign-in Server Actions call `server/domain/auth` and set an httpOnly cookie (`reachly_session`) signed with `jose`.
+2. `src/middleware.ts` verifies that cookie on the edge (jose only — no Mongoose).
+3. Pages re-load the user from MongoDB via `getCurrentUser()`.
+4. REST routes use `server/middleware/auth.ts` and attach `{ userId, workspaceId, role }` to `req.user`.
 
-1. Browser uses `@supabase/ssr` `createBrowserClient` only on auth forms (anon key).
-2. Middleware (`src/middleware.ts`) refreshes the session via `getUser()` and gates app routes; workspace membership is cached in an httpOnly cookie after the first check.
-3. When configured, middleware redirects unauthenticated users away from app routes to `/login?next=…`.
-4. Server Components use `createClient()` from `src/lib/supabase/server.ts` (cookie-backed).
-5. No tokens in `localStorage`.
+Workspace id always comes from the session, never from a client-supplied id.
 
-## Workspace resolution
+## Data
 
-- `getWorkspaceContext()` (`src/lib/workspace/context.ts`) loads the authenticated user and **first** `workspace_members` row (documented for future workspace switcher).
-- Server actions and future APIs must not trust client-supplied `workspace_id` without membership checks.
-- Initial workspace creation: RPC `create_initial_workspace` (idempotent, `SECURITY DEFINER`, fixed `search_path`).
+MongoDB collections (Mongoose, `timestamps: true`):
 
-## Database (Supabase PostgreSQL)
+`users`, `workspaces`, `linkedinaccounts`, `leadlists`, `leads`, `campaigns`, `conversations`, `internalnotes`, `blacklists`, `automationevents`
 
-Tables: `profiles`, `workspaces`, `workspace_members`, `lead_lists`, `leads` — see `supabase/migrations/`.
+Tenant isolation is `workspaceId` on every document plus application checks in `server/domain/context.ts`. This is not Postgres RLS.
 
-RLS enabled on all tenant tables. Membership reads use `is_workspace_member()` / `workspace_role()` helpers to avoid policy recursion.
+## Domain modules
 
-### Leads domain
+| Area | Next.js adapter | Domain |
+|------|-----------------|--------|
+| Auth / workspace | `src/app/(auth)/actions.ts` | `server/domain/auth.ts` |
+| Leads | `src/lib/leads/repository.ts` | `server/domain/leads.ts` |
+| Campaigns | `src/lib/campaigns/repository.ts` | `server/domain/campaigns.ts` |
+| Accounts | `src/lib/accounts/repository.ts` | `server/domain/accounts.ts` |
+| Unibox | `src/lib/unibox/repository.ts` | `server/domain/unibox.ts` |
+| Insights | `src/lib/insights/repository.ts` | `server/domain/analytics.ts` |
+| Settings / blacklist | REST `/api/settings`, `/api/blacklist` | `server/domain/settings.ts`, `blacklist.ts` |
 
-- Server-only access: `src/lib/leads/repository.ts` (uses `requireWorkspaceContext()`).
-- Server Actions: `src/app/(app)/leads/actions.ts` (CSV import, list CRUD, paginated lead reads).
-- UI: `src/components/leads/leads-live-view.tsx` when authenticated + workspace; demo preview via `PreviewSwitch` otherwise.
-- Cross-workspace list assignment blocked by composite FK `(lead_list_id, workspace_id)` and trigger `enforce_lead_workspace_from_list`.
-- CSV import: client upload → Server Action → `parseLeadsCsv` → chunked RPC `import_leads_to_list` (transactional per chunk).
+The Settings screen still renders the reference UI with demo copy; the API and domain layer are implemented.
 
-### Campaigns domain (configuration only)
+## Queues
 
-- Tables: `campaigns`, `campaign_steps` — migration `20260222140000_campaigns_and_steps.sql`.
-- Status lifecycle: `draft`, `active`, `paused`, `archived`, `completed`, `cancelled`, `failed` — see `docs/CAMPAIGN_EXECUTION.md` for the execution engine (**no LinkedIn send** by default).
-- Step types: `connection_request`, `message` with JSON `configuration` (`label`, `body_template`, `delay_days`).
-- Server-only: `src/lib/campaigns/repository.ts`; actions: `src/app/(app)/campaigns/actions.ts`.
-- UI: `campaigns-live-view.tsx`, `campaign-detail-live.tsx`, `campaign-wizard-modal.tsx` when Supabase + workspace; `force-dynamic` on `/campaigns` routes.
-- Composite FK prevents cross-workspace lead list assignment.
+BullMQ queues in `server/services/scheduler/`:
 
-### Unibox (persistence foundation)
+- `connection-queue` — daily connection requests
+- `message-queue` — follow-up sequence
+- `inbox-poll-queue` — inbox scrape every 2 hours per active account
+- `maintenance-queue` — 07:55 UTC daily schedule, 30-minute health check, midnight send-count reset
 
-- Tables: `conversations`, `messages` — migration `20260222150000_unibox_conversations.sql`.
-- Internal notes/drafts: `unibox_internal_notes` — migration `20260222160000_unibox_internal_notes.sql` (`kind`: `note` | `draft`). These rows are **not** messages: no `direction`, `sent_at`, or delivery state. They may attach to a `conversation_id` and/or `lead_id` (lead-only notes do not create a fake conversation).
-- Optional `lead_id` on conversations with composite FK; thread messages ordered by `sent_at`.
-- Server-only: `src/lib/unibox/repository.ts`; actions: `src/app/(app)/unibox/actions.ts`.
-- **No LinkedIn sync or external send** — outbound compose stays disabled in live mode; internal notes use **Save to workspace** only.
+Playwright lives in `server/services/playwright/linkedinActions.ts`. Session cookies and LinkedIn passwords are AES-256-GCM encrypted.
 
-### Insights (dashboard & analytics)
+## Demo data
 
-- Server-only: `src/lib/insights/repository.ts` (`getDashboardInsights`, `getAnalyticsInsights`).
-- UI: `dashboard-live-view.tsx`, `analytics-live-view.tsx`; routes use `force-dynamic`.
-- Metric definitions: `docs/TASK006_METRICS.md`.
-
-## Demo data boundary
-
-`src/data/demo/*` powers **preview mode only** when Supabase is not configured. Authenticated live routes do not import demo campaign metrics.
+`src/data/demo/*` is preview mode only. Authenticated live routes load MongoDB.
 
 ## Implemented vs planned
 
 | Capability | Status |
 |------------|--------|
-| Reference UI routes | Implemented |
-| Supabase Auth (email/password) | Implemented |
-| Workspace bootstrap + RLS | Implemented (apply migrations) |
-| Lead lists + leads persistence | Implemented (migration `20260222130000_lead_lists_and_leads.sql`) |
-| Campaign configuration persistence | Implemented (no execution/sending) |
-| LinkedIn integration | Planned — see `docs/LINKEDIN_INTEGRATION_FEASIBILITY.md` |
+| UI from the HTML reference | Implemented |
+| Email/password auth + workspace | Implemented (Mongo + JWT cookie) |
+| Lead lists + CSV import | Implemented |
+| Campaign configuration + launch | Implemented (BullMQ) |
+| LinkedIn login / send / inbox poll | Implemented in code; selectors need a real-account pass |
+| Settings page live UI | API exists; page still uses the demo layout |
+| Billing | Not implemented |

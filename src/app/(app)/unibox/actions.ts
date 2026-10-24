@@ -1,18 +1,20 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { isSupabaseConfigured } from "@/lib/env";
+import { isBackendConfigured } from "@/lib/env";
 import {
   createConversation,
   createInternalNote,
   deleteInternalNote,
   getConversationWithMessages,
   listConversations,
+  markConversationRead,
+  sendReply,
   updateConversationStatus,
   updateInternalNote,
-  UniboxDataError,
 } from "@/lib/unibox/repository";
 import type { ConversationWithMessages, InternalNoteRow, PaginatedConversations } from "@/lib/unibox/types";
+import { actionErrorMessage } from "@/lib/server/backend";
 
 export type UniboxActionResult = {
   error?: string;
@@ -27,39 +29,42 @@ export type UniboxFetchResult = {
   conversation?: ConversationWithMessages;
 };
 
-function mapError(err: unknown): string {
-  if (err instanceof UniboxDataError) return err.message;
-  return "Something went wrong. Please try again.";
-}
+const NOT_CONFIGURED = { error: "Backend is not configured." };
 
 export async function fetchConversationsAction(
   search: string,
   page: number,
+  filter: "all" | "unread" | "replied" = "all",
 ): Promise<UniboxFetchResult> {
-  if (!isSupabaseConfigured()) return { error: "Supabase is not configured." };
+  if (!isBackendConfigured()) return NOT_CONFIGURED;
   try {
-    const list = await listConversations({ search, page, status: "all" });
+    const list = await listConversations({ search, page, status: "all", filter });
     return { list };
   } catch (err) {
-    return { error: mapError(err) };
+    return { error: actionErrorMessage(err) };
   }
 }
 
+/** Loads a thread and clears its unread flag. */
 export async function fetchConversationDetailAction(
   conversationId: string,
 ): Promise<UniboxFetchResult> {
-  if (!isSupabaseConfigured()) return { error: "Supabase is not configured." };
+  if (!isBackendConfigured()) return NOT_CONFIGURED;
   try {
     const conversation = await getConversationWithMessages(conversationId);
     if (!conversation) return { error: "Conversation not found." };
+    if (conversation.has_unread) {
+      await markConversationRead(conversationId);
+      conversation.has_unread = false;
+    }
     return { conversation };
   } catch (err) {
-    return { error: mapError(err) };
+    return { error: actionErrorMessage(err) };
   }
 }
 
 export async function createConversationAction(formData: FormData): Promise<UniboxActionResult> {
-  if (!isSupabaseConfigured()) return { error: "Supabase is not configured." };
+  if (!isBackendConfigured()) return NOT_CONFIGURED;
   const title = String(formData.get("title") ?? "").trim();
   const leadId = String(formData.get("lead_id") ?? "") || null;
   try {
@@ -67,19 +72,19 @@ export async function createConversationAction(formData: FormData): Promise<Unib
     revalidatePath("/unibox");
     return { success: "Conversation created.", conversationId: conv.id };
   } catch (err) {
-    return { error: mapError(err) };
+    return { error: actionErrorMessage(err) };
   }
 }
 
-/**
- * @deprecated Use createInternalNoteAction — does not create thread messages.
- * Kept for compatibility; stores an internal draft, not an outbound message.
- */
-export async function saveLocalMessageAction(
-  conversationId: string,
-  body: string,
-): Promise<UniboxActionResult> {
-  return createInternalNoteAction(conversationId, body, "draft");
+export async function sendReplyAction(conversationId: string, body: string): Promise<UniboxActionResult> {
+  if (!isBackendConfigured()) return NOT_CONFIGURED;
+  try {
+    await sendReply(conversationId, body);
+    revalidatePath("/unibox");
+    return { success: "Message sent on LinkedIn." };
+  } catch (err) {
+    return { error: actionErrorMessage(err, "Could not send the message.") };
+  }
 }
 
 export async function createInternalNoteAction(
@@ -88,7 +93,7 @@ export async function createInternalNoteAction(
   kind: string,
   leadId?: string | null,
 ): Promise<UniboxActionResult> {
-  if (!isSupabaseConfigured()) return { error: "Supabase is not configured." };
+  if (!isBackendConfigured()) return NOT_CONFIGURED;
   try {
     const note = await createInternalNote({
       conversation_id: conversationId,
@@ -102,39 +107,42 @@ export async function createInternalNoteAction(
       note,
     };
   } catch (err) {
-    return { error: mapError(err) };
+    return { error: actionErrorMessage(err) };
   }
 }
 
 export async function updateInternalNoteAction(noteId: string, body: string): Promise<UniboxActionResult> {
-  if (!isSupabaseConfigured()) return { error: "Supabase is not configured." };
+  if (!isBackendConfigured()) return NOT_CONFIGURED;
   try {
     const note = await updateInternalNote(noteId, body);
     revalidatePath("/unibox");
     return { success: "Note updated.", note };
   } catch (err) {
-    return { error: mapError(err) };
+    return { error: actionErrorMessage(err) };
   }
 }
 
 export async function deleteInternalNoteAction(noteId: string): Promise<UniboxActionResult> {
-  if (!isSupabaseConfigured()) return { error: "Supabase is not configured." };
+  if (!isBackendConfigured()) return NOT_CONFIGURED;
   try {
     await deleteInternalNote(noteId);
     revalidatePath("/unibox");
     return { success: "Note deleted." };
   } catch (err) {
-    return { error: mapError(err) };
+    return { error: actionErrorMessage(err) };
   }
 }
 
-export async function archiveConversationAction(conversationId: string): Promise<UniboxActionResult> {
-  if (!isSupabaseConfigured()) return { error: "Supabase is not configured." };
+export async function setConversationStatusAction(
+  conversationId: string,
+  status: "open" | "archived",
+): Promise<UniboxActionResult> {
+  if (!isBackendConfigured()) return NOT_CONFIGURED;
   try {
-    await updateConversationStatus(conversationId, "archived");
+    await updateConversationStatus(conversationId, status);
     revalidatePath("/unibox");
-    return { success: "Conversation archived." };
+    return { success: status === "archived" ? "Conversation archived." : "Conversation reopened." };
   } catch (err) {
-    return { error: mapError(err) };
+    return { error: actionErrorMessage(err) };
   }
 }

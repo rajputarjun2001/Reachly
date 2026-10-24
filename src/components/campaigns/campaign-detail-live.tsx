@@ -3,23 +3,24 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import { DetailActivityChart } from "@/components/charts/detail-activity-chart";
 import type { CampaignWithSteps } from "@/lib/campaigns/types";
-import type { CampaignExecutionStats } from "@/lib/campaigns/execution/types";
+import type { AccountOption } from "@/lib/accounts/types";
+import type { LeadStatus } from "@/lib/leads/types";
 import { appRoutes } from "@/lib/routes";
 import {
-  cancelCampaignExecutionAction,
-  pauseCampaignExecutionAction,
-  processDueCampaignJobsAction,
-  resumeCampaignExecutionAction,
+  cancelCampaignAction,
+  pauseCampaignAction,
+  resumeCampaignAction,
   saveCampaignStepsAction,
-  startCampaignExecutionAction,
+  startCampaignAction,
+  updateCampaignAccountAction,
+  updateCampaignStatusAction,
 } from "@/app/(app)/campaigns/actions";
 
 type CampaignDetailLiveProps = {
   campaign: CampaignWithSteps;
-  leadsPreview: { id: string; name: string; company: string | null; job_title: string | null }[];
-  executionStats: CampaignExecutionStats | null;
+  leadsPreview: { id: string; name: string; company: string | null; job_title: string | null; status: LeadStatus }[];
+  accounts: AccountOption[];
 };
 
 function statusLabel(status: CampaignWithSteps["status"]) {
@@ -43,18 +44,32 @@ function statusLabel(status: CampaignWithSteps["status"]) {
   }
 }
 
-export function CampaignDetailLive({ campaign, leadsPreview, executionStats }: CampaignDetailLiveProps) {
+const PAUSE_REASONS: Record<string, string> = {
+  manual: "Paused manually.",
+  session_expired: "Paused because the LinkedIn session expired. Reconnect the account, then resume.",
+  account_flagged: "Paused because LinkedIn asked for verification. Reconnect the account, then resume.",
+  account_removed: "Paused because its LinkedIn account was removed.",
+};
+
+function pct(part: number, whole: number) {
+  return whole > 0 ? Math.round((part / whole) * 100) : 0;
+}
+
+export function CampaignDetailLive({ campaign, leadsPreview, accounts }: CampaignDetailLiveProps) {
   const router = useRouter();
   const [steps, setSteps] = useState(campaign.steps);
   const [message, setMessage] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
-  const stats = executionStats;
+  const stats = campaign.stats;
+  const counts = campaign.lead_status_counts;
+  const pendingLeads = counts.pending ?? 0;
   const canEditSteps = campaign.status === "draft" || campaign.status === "paused";
-  const canStart = campaign.status === "draft" && campaign.lead_list_id && campaign.steps.length > 0;
+  const canStart = campaign.status === "draft" && Boolean(campaign.lead_list_id) && Boolean(campaign.linkedin_account_id);
   const canPause = campaign.status === "active";
   const canResume = campaign.status === "paused";
-  const canCancel = campaign.status === "active" || campaign.status === "paused" || campaign.status === "draft";
+  const canCancel = campaign.status === "active" || campaign.status === "paused";
+  const canArchive = campaign.status !== "archived" && campaign.status !== "active";
 
   const run = (fn: () => Promise<{ error?: string; success?: string }>) => {
     startTransition(async () => {
@@ -73,6 +88,13 @@ export function CampaignDetailLive({ campaign, leadsPreview, executionStats }: C
     run(() => saveCampaignStepsAction(campaign.id, JSON.stringify(payload)));
   };
 
+  const funnel = [
+    { label: "Connection requests sent", value: stats.connections_sent, of: stats.total_leads },
+    { label: "Accepted", value: stats.connections_accepted, of: stats.connections_sent },
+    { label: "Follow-ups sent", value: stats.messages_sent, of: null },
+    { label: "Replied", value: stats.replied, of: stats.connections_accepted },
+  ];
+
   return (
     <>
       <div className="header">
@@ -82,110 +104,169 @@ export function CampaignDetailLive({ campaign, leadsPreview, executionStats }: C
         <div>
           <div className="header-title">{campaign.name}</div>
           <div className="header-sub">
-            {campaign.lead_count} leads in list · {campaign.lead_list_name ?? "No list"} · {statusLabel(campaign.status)}
+            {campaign.lead_count} leads · {campaign.lead_list_name ?? "No list"} ·{" "}
+            {campaign.linkedin_account_label ?? "No account"} · {statusLabel(campaign.status)}
           </div>
         </div>
         <div style={{ display: "flex", gap: 8, marginLeft: "auto", flexWrap: "wrap" }}>
-          {canStart ? (
-            <button type="button" className="btn btn-primary btn-sm" disabled={pending} onClick={() => run(() => startCampaignExecutionAction(campaign.id))}>
-              Start campaign
+          {campaign.status === "draft" ? (
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              disabled={pending || !canStart}
+              title={canStart ? undefined : "Choose a lead list and a LinkedIn account first"}
+              onClick={() => run(() => startCampaignAction(campaign.id))}
+            >
+              ▶ Start campaign
             </button>
           ) : null}
           {canPause ? (
-            <button type="button" className="btn btn-outline btn-sm" disabled={pending} onClick={() => run(() => pauseCampaignExecutionAction(campaign.id))}>
+            <button type="button" className="btn btn-outline btn-sm" disabled={pending} onClick={() => run(() => pauseCampaignAction(campaign.id))}>
               ⏸ Pause
             </button>
           ) : null}
           {canResume ? (
-            <button type="button" className="btn btn-outline btn-sm" disabled={pending} onClick={() => run(() => resumeCampaignExecutionAction(campaign.id))}>
+            <button type="button" className="btn btn-outline btn-sm" disabled={pending} onClick={() => run(() => resumeCampaignAction(campaign.id))}>
               ▶ Resume
             </button>
           ) : null}
           {canCancel ? (
-            <button type="button" className="btn btn-outline btn-sm" disabled={pending} onClick={() => run(() => cancelCampaignExecutionAction(campaign.id))}>
+            <button
+              type="button"
+              className="btn btn-outline btn-sm"
+              disabled={pending}
+              onClick={() => {
+                if (window.confirm("Cancel this campaign? Queued sends will stop and it cannot be restarted.")) {
+                  run(() => cancelCampaignAction(campaign.id));
+                }
+              }}
+            >
               Cancel
             </button>
           ) : null}
-          <button
-            type="button"
-            className="btn btn-outline btn-sm"
-            disabled={pending || campaign.status !== "active"}
-            title="Runs due jobs with the disabled executor (records blocked status — no LinkedIn send)"
-            onClick={() => run(() => processDueCampaignJobsAction(campaign.id))}
-          >
-            Process due jobs
-          </button>
+          {canArchive ? (
+            <button type="button" className="btn btn-ghost btn-sm" disabled={pending} onClick={() => run(() => updateCampaignStatusAction(campaign.id, "archived"))}>
+              Archive
+            </button>
+          ) : null}
           <button type="button" className="btn btn-primary btn-sm" onClick={saveSequence} disabled={pending || !canEditSteps}>
             Save sequence
           </button>
         </div>
       </div>
       <div className="content">
-        <p className="form-hint" style={{ marginBottom: 16 }}>
-          Execution engine is active in your workspace database. <strong>LinkedIn delivery is not configured</strong> — jobs run through a disabled executor and are marked blocked/unsupported, not sent.
-        </p>
+        {campaign.status === "paused" && campaign.paused_reason ? (
+          <p className="form-hint" style={{ marginBottom: 12, color: "var(--amber)" }}>
+            {PAUSE_REASONS[campaign.paused_reason] ?? `Paused: ${campaign.paused_reason}`}
+          </p>
+        ) : null}
         {message ? (
           <p className="form-hint" style={{ marginBottom: 12 }} role="status">{message}</p>
         ) : null}
         <div className="stats-grid mb-24">
           <div className="stat-card">
-            <div className="stat-icon" style={{ background: "#EEF2FF" }}>👥</div>
-            <div className="stat-val">{stats?.enrolled ?? 0}</div>
-            <div className="stat-label">Enrolled</div>
+            <div className="stat-icon" style={{ background: "#EEF2FF" }}>📤</div>
+            <div className="stat-val">{stats.connections_sent}</div>
+            <div className="stat-label">Requests sent</div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-icon" style={{ background: "#ECFDF5" }}>🤝</div>
+            <div className="stat-val">{stats.connections_accepted}</div>
+            <div className="stat-label">Accepted ({pct(stats.connections_accepted, stats.connections_sent)}%)</div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-icon" style={{ background: "#DBEAFE" }}>💬</div>
+            <div className="stat-val">{stats.replied}</div>
+            <div className="stat-label">Replies</div>
           </div>
           <div className="stat-card">
             <div className="stat-icon" style={{ background: "#FEF3C7" }}>⏳</div>
-            <div className="stat-val">{stats?.pending_jobs ?? 0}</div>
-            <div className="stat-label">Pending jobs</div>
-          </div>
-          <div className="stat-card">
-            <div className="stat-icon" style={{ background: "#ECFDF5" }}>✓</div>
-            <div className="stat-val">{stats?.completed_enrollments ?? 0}</div>
-            <div className="stat-label">Completed enrollments</div>
-          </div>
-          <div className="stat-card">
-            <div className="stat-icon" style={{ background: "#FEE2E2" }}>!</div>
-            <div className="stat-val">{stats?.failed_enrollments ?? 0}</div>
-            <div className="stat-label">Failed enrollments</div>
+            <div className="stat-val">{pendingLeads}</div>
+            <div className="stat-label">Leads not contacted</div>
           </div>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 20 }}>
           <div className="card">
-            <div className="card-header"><div className="card-title">Activity (illustrative)</div></div>
+            <div className="card-header"><div className="card-title">Setup & funnel</div></div>
             <div className="card-body">
-              <p className="text-xs color-muted" style={{ marginBottom: 8 }}>Chart is not tied to execution data yet.</p>
-              <DetailActivityChart />
+              <div className="form-group">
+                <label className="form-label" htmlFor="detail-account">LinkedIn account</label>
+                <select
+                  id="detail-account"
+                  className="form-input form-select"
+                  value={campaign.linkedin_account_id ?? ""}
+                  disabled={pending || campaign.status !== "draft"}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    run(() => updateCampaignAccountAction(campaign.id, value));
+                  }}
+                >
+                  <option value="">Choose an account…</option>
+                  {accounts.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.label}{a.status === "active" ? "" : ` (${a.status})`}
+                    </option>
+                  ))}
+                </select>
+                {accounts.length === 0 ? (
+                  <div className="form-hint">
+                    <Link href={appRoutes.accounts} style={{ color: "var(--primary)" }}>Connect a LinkedIn account</Link> to start this campaign.
+                  </div>
+                ) : campaign.status !== "draft" ? (
+                  <div className="form-hint">The account can only be changed while the campaign is a draft.</div>
+                ) : null}
+              </div>
+              {funnel.map((row) => (
+                <div key={row.label} style={{ marginBottom: 12 }}>
+                  <div className="flex-between mb-4">
+                    <span className="text-xs color-muted">{row.label}</span>
+                    <span className="text-xs fw-700">
+                      {row.value}
+                      {row.of !== null ? ` · ${pct(row.value, row.of)}%` : ""}
+                    </span>
+                  </div>
+                  <div className="prog-wrap">
+                    <div
+                      className="prog-bar"
+                      style={{ width: `${row.of !== null ? pct(row.value, row.of) : 100}%`, background: "var(--primary)", opacity: row.value ? 1 : 0.15 }}
+                    />
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
           <div className="card">
             <div className="card-header"><div className="card-title">Message Sequence</div></div>
             <div className="card-body">
-              {steps.length === 0 ? (
-                <p className="color-muted text-sm">No steps configured.</p>
-              ) : (
-                steps.map((step, i) => (
-                  <div key={step.id} className="sequence-step">
-                    <div className="step-num">{i + 1}</div>
-                    <div className="step-body">
-                      <div className="step-label">{step.configuration.label ?? step.step_type}</div>
-                      <textarea
-                        className="form-input"
-                        rows={3}
-                        value={step.configuration.body_template ?? ""}
-                        disabled={!canEditSteps}
-                        onChange={(e) => {
-                          const next = [...steps];
-                          next[i] = {
-                            ...step,
-                            configuration: { ...step.configuration, body_template: e.target.value },
-                          };
-                          setSteps(next);
-                        }}
-                      />
+              {steps.map((step, i) => (
+                <div key={step.id} className="sequence-step">
+                  <div className="step-num">{i + 1}</div>
+                  <div className="step-body">
+                    <div className="step-label">
+                      {step.configuration.label ?? step.step_type}
+                      {step.step_type === "message" ? ` · ${step.configuration.delay_days ?? 0} day(s) after previous step` : ""}
                     </div>
+                    <textarea
+                      className="form-input"
+                      rows={3}
+                      maxLength={step.step_type === "connection_request" ? 280 : undefined}
+                      value={step.configuration.body_template ?? ""}
+                      disabled={!canEditSteps}
+                      onChange={(e) => {
+                        const next = [...steps];
+                        next[i] = {
+                          ...step,
+                          configuration: { ...step.configuration, body_template: e.target.value },
+                        };
+                        setSteps(next);
+                      }}
+                    />
                   </div>
-                ))
-              )}
+                </div>
+              ))}
+              {!canEditSteps ? (
+                <p className="form-hint">Pause the campaign to edit its messages.</p>
+              ) : null}
             </div>
           </div>
         </div>
@@ -196,7 +277,7 @@ export function CampaignDetailLive({ campaign, leadsPreview, executionStats }: C
           <div className="table-wrap">
             <table>
               <thead>
-                <tr><th>Name</th><th>Company</th><th>Title</th><th>Enrollment</th></tr>
+                <tr><th>Name</th><th>Company</th><th>Title</th><th>Status</th></tr>
               </thead>
               <tbody>
                 {leadsPreview.length === 0 ? (
@@ -210,9 +291,7 @@ export function CampaignDetailLive({ campaign, leadsPreview, executionStats }: C
                       <td>{lead.company ?? "—"}</td>
                       <td>{lead.job_title ?? "—"}</td>
                       <td>
-                        <span className="badge badge-gray">
-                          {(stats?.enrolled ?? 0) > 0 ? "See execution stats" : "Not enrolled until start"}
-                        </span>
+                        <span className="badge badge-gray">{lead.status.replace(/_/g, " ")}</span>
                       </td>
                     </tr>
                   ))

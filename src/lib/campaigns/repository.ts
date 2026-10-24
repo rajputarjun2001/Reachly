@@ -1,237 +1,174 @@
 import "server-only";
 
-import { createClient } from "@/lib/supabase/server";
-import { requireWorkspaceContext } from "@/lib/workspace/context";
+import * as campaignsDomain from "@server/domain/campaigns";
+import type { CampaignDoc } from "@server/models";
+import { badRequest } from "@server/utils/errors";
+import { ensureDb } from "@/lib/server/backend";
+import { requireAuthContext } from "@/lib/workspace/context";
 import type {
   CampaignListFilter,
   CampaignRow,
   CampaignSettings,
-  CampaignStepRow,
+  CampaignStatus,
   CampaignSummary,
   CampaignWithSteps,
 } from "./types";
 import {
-  canTransitionStatus,
-  sanitizeStepConfiguration,
+  sequenceToSteps,
+  stepsToSequence,
   validateCampaignName,
-  validateCampaignStatus,
   validateStepsInput,
   type StepInput,
 } from "./validation";
 
-export class CampaignDataError extends Error {
-  constructor(
-    message: string,
-    public code: string = "CAMPAIGN_DATA_ERROR",
-  ) {
-    super(message);
-  }
+type PopulatedRef = { _id: unknown; name?: string; totalLeads?: number; label?: string; fullName?: string; linkedinEmail?: string } | null;
+
+function refId(value: unknown): string | null {
+  if (!value) return null;
+  if (typeof value === "object" && "_id" in value) return String((value as { _id: unknown })._id);
+  return String(value);
 }
 
-async function getScopedClient() {
-  const ctx = await requireWorkspaceContext();
-  const supabase = await createClient();
-  return { supabase, ctx };
+function asPopulated(value: unknown): PopulatedRef {
+  return value && typeof value === "object" && "_id" in value ? (value as PopulatedRef) : null;
 }
 
-function mapSchemaError(error: { code?: string; message?: string }) {
-  const hint = `${error.code ?? ""} ${error.message ?? ""}`.toLowerCase();
-  if (
-    error.code === "42P01" ||
-    error.code === "PGRST205" ||
-    hint.includes("campaigns") ||
-    hint.includes("schema cache")
-  ) {
-    throw new CampaignDataError(
-      "Campaign tables are missing in this Supabase project.",
-      "SCHEMA_MISSING",
-    );
-  }
+function iso(value: unknown): string {
+  return value instanceof Date ? value.toISOString() : new Date(String(value ?? Date.now())).toISOString();
 }
+
+export function mapCampaignRow(doc: CampaignDoc): CampaignRow {
+  const stats = doc.stats ?? {
+    totalLeads: 0,
+    connectionsSent: 0,
+    connectionsAccepted: 0,
+    msg1Sent: 0,
+    msg2Sent: 0,
+    msg3Sent: 0,
+    replied: 0,
+  };
+  return {
+    id: String(doc._id),
+    workspace_id: String(doc.workspaceId),
+    name: doc.name,
+    description: doc.description ?? null,
+    status: doc.status as CampaignStatus,
+    lead_list_id: refId(doc.leadListId),
+    linkedin_account_id: refId(doc.linkedinAccountId),
+    settings: {
+      goal: doc.settings?.goal ?? null,
+      daily_limit: doc.settings?.dailyLimit ?? null,
+      timezone: doc.settings?.timezone ?? null,
+    },
+    stats: {
+      total_leads: stats.totalLeads ?? 0,
+      connections_sent: stats.connectionsSent ?? 0,
+      connections_accepted: stats.connectionsAccepted ?? 0,
+      messages_sent: (stats.msg1Sent ?? 0) + (stats.msg2Sent ?? 0) + (stats.msg3Sent ?? 0),
+      replied: stats.replied ?? 0,
+    },
+    paused_reason: doc.pausedReason ?? null,
+    launched_at: doc.launchedAt ? iso(doc.launchedAt) : null,
+    created_by: doc.createdBy ? String(doc.createdBy) : null,
+    created_at: iso(doc.get("createdAt")),
+    updated_at: iso(doc.get("updatedAt")),
+  };
+}
+
+function mapSummary(doc: CampaignDoc): CampaignSummary {
+  const list = asPopulated(doc.leadListId);
+  const account = asPopulated(doc.linkedinAccountId);
+  return {
+    ...mapCampaignRow(doc),
+    lead_list_name: list?.name ?? null,
+    linkedin_account_label: account ? account.label || account.fullName || account.linkedinEmail || null : null,
+    lead_count: list?.totalLeads ?? 0,
+    step_count: 1 + (doc.messages?.length ?? 0),
+  };
+}
+
+async function scoped() {
+  const ctx = await requireAuthContext();
+  await ensureDb();
+  return ctx;
+}
+
+const FILTER_STATUSES: Record<CampaignListFilter, string[] | undefined> = {
+  all: undefined,
+  active: ["active", "paused"],
+  draft: ["draft"],
+  archived: ["archived", "completed", "cancelled", "failed"],
+};
 
 export async function listCampaigns(options?: {
   filter?: CampaignListFilter;
   search?: string;
 }): Promise<CampaignSummary[]> {
-  const { supabase, ctx } = await getScopedClient();
-
-  let query = supabase
-    .from("campaigns")
-    .select(
-      `
-      id, workspace_id, name, description, status, lead_list_id, settings,
-      created_by, created_at, updated_at,
-      lead_lists ( name, leads ( count ) ),
-      campaign_steps ( count )
-    `,
-    )
-    .eq("workspace_id", ctx.workspaceId)
-    .order("created_at", { ascending: false });
-
-  const filter = options?.filter ?? "all";
-  if (filter === "active") query = query.eq("status", "active");
-  if (filter === "draft") query = query.eq("status", "draft");
-  if (filter === "archived") query = query.eq("status", "archived");
-
-  const search = options?.search?.trim();
-  if (search) {
-    const escaped = search.replace(/[%_,]/g, "");
-    query = query.ilike("name", `%${escaped}%`);
-  }
-
-  const { data, error } = await query;
-  if (error) {
-    mapSchemaError(error);
-    throw new CampaignDataError("Failed to load campaigns", "LIST_FAILED");
-  }
-
-  return (data ?? []).map((row) => {
-    const nested = row as typeof row & {
-      lead_lists?: { name: string; leads?: { count: number }[] } | null;
-      campaign_steps?: { count: number }[];
-    };
-    const lead_list_name = nested.lead_lists?.name ?? null;
-    const lead_count = nested.lead_lists?.leads?.[0]?.count ?? 0;
-    const step_count = nested.campaign_steps?.[0]?.count ?? 0;
-    return {
-      id: nested.id,
-      workspace_id: nested.workspace_id,
-      name: nested.name,
-      description: nested.description,
-      status: nested.status,
-      lead_list_id: nested.lead_list_id,
-      settings: (nested.settings ?? {}) as CampaignSettings,
-      created_by: nested.created_by,
-      created_at: nested.created_at,
-      updated_at: nested.updated_at,
-      lead_list_name,
-      lead_count,
-      step_count,
-    };
+  const ctx = await scoped();
+  const docs = await campaignsDomain.listCampaigns(ctx, {
+    status: FILTER_STATUSES[options?.filter ?? "all"],
+    search: options?.search,
   });
+  return docs.map((d) => mapSummary(d as CampaignDoc));
 }
 
 export async function getCampaignById(campaignId: string): Promise<CampaignWithSteps | null> {
-  const { supabase, ctx } = await getScopedClient();
-
-  const { data: campaign, error } = await supabase
-    .from("campaigns")
-    .select(
-      `
-      id, workspace_id, name, description, status, lead_list_id, settings,
-      created_by, created_at, updated_at,
-      lead_lists ( name, leads ( count ) )
-    `,
-    )
-    .eq("id", campaignId)
-    .eq("workspace_id", ctx.workspaceId)
-    .maybeSingle();
-
-  if (error) {
-    mapSchemaError(error);
-    throw new CampaignDataError("Failed to load campaign", "LOAD_FAILED");
+  const ctx = await scoped();
+  try {
+    const { campaign, leadStatusCounts } = await campaignsDomain.campaignDetail(ctx, campaignId);
+    const summary = mapSummary(campaign);
+    return {
+      ...summary,
+      steps: sequenceToSteps(summary, {
+        connectionNote: campaign.connectionNote ?? "",
+        connectionLabel: campaign.connectionLabel ?? null,
+        messages: (campaign.messages ?? []).map((m) => ({
+          step: m.step,
+          delayDays: m.delayDays,
+          body: m.body,
+          label: m.label ?? null,
+        })),
+      }),
+      lead_status_counts: leadStatusCounts,
+    };
+  } catch (err) {
+    if ((err as { status?: number }).status === 404 || (err as { status?: number }).status === 400) return null;
+    throw err;
   }
-  if (!campaign) return null;
-
-  const { data: steps, error: stepsError } = await supabase
-    .from("campaign_steps")
-    .select("*")
-    .eq("campaign_id", campaignId)
-    .eq("workspace_id", ctx.workspaceId)
-    .order("step_order", { ascending: true });
-
-  if (stepsError) {
-    mapSchemaError(stepsError);
-    throw new CampaignDataError("Failed to load campaign steps", "LOAD_FAILED");
-  }
-
-  const nested = campaign as typeof campaign & {
-    lead_lists?: { name: string; leads?: { count: number }[] } | null;
-  };
-
-  return {
-    id: nested.id,
-    workspace_id: nested.workspace_id,
-    name: nested.name,
-    description: nested.description,
-    status: nested.status,
-    lead_list_id: nested.lead_list_id,
-    settings: (nested.settings ?? {}) as CampaignSettings,
-    created_by: nested.created_by,
-    created_at: nested.created_at,
-    updated_at: nested.updated_at,
-    lead_list_name: nested.lead_lists?.name ?? null,
-    lead_count: nested.lead_lists?.leads?.[0]?.count ?? 0,
-    step_count: steps?.length ?? 0,
-    steps: (steps ?? []) as CampaignStepRow[],
-  };
 }
 
-async function assertLeadListInWorkspace(leadListId: string, workspaceId: string, supabase: Awaited<ReturnType<typeof createClient>>) {
-  const { data } = await supabase
-    .from("lead_lists")
-    .select("id")
-    .eq("id", leadListId)
-    .eq("workspace_id", workspaceId)
-    .maybeSingle();
-  if (!data) throw new CampaignDataError("Lead list not found in this workspace", "VALIDATION");
+function toSettingsInput(settings: CampaignSettings | undefined) {
+  if (!settings) return undefined;
+  return {
+    goal: settings.goal ?? null,
+    timezone: settings.timezone ?? null,
+    dailyLimit: settings.daily_limit ?? null,
+  };
 }
 
 export async function createCampaignDraft(input: {
   name: string;
   description?: string | null;
   lead_list_id?: string | null;
+  linkedin_account_id?: string | null;
   settings?: CampaignSettings;
   steps: StepInput[];
-}): Promise<CampaignWithSteps> {
-  const { supabase, ctx } = await getScopedClient();
+}): Promise<CampaignRow> {
+  const ctx = await scoped();
   const name = validateCampaignName(input.name);
-  if (!name) throw new CampaignDataError("Invalid campaign name", "VALIDATION");
-
+  if (!name) throw badRequest("Invalid campaign name");
   const steps = validateStepsInput(input.steps);
-  if (!steps) throw new CampaignDataError("Invalid sequence steps", "VALIDATION");
+  if (!steps) throw badRequest("Invalid sequence steps");
 
-  if (input.lead_list_id) {
-    await assertLeadListInWorkspace(input.lead_list_id, ctx.workspaceId, supabase);
-  }
-
-  const { data: campaign, error } = await supabase
-    .from("campaigns")
-    .insert({
-      workspace_id: ctx.workspaceId,
-      name,
-      description: input.description?.trim() || null,
-      status: "draft",
-      lead_list_id: input.lead_list_id ?? null,
-      settings: input.settings ?? {},
-      created_by: ctx.userId,
-    })
-    .select()
-    .single();
-
-  if (error) {
-    mapSchemaError(error);
-    throw new CampaignDataError("Failed to create campaign", "CREATE_FAILED");
-  }
-
-  const stepRows = steps.map((s) => ({
-    campaign_id: campaign.id,
-    workspace_id: ctx.workspaceId,
-    step_order: s.step_order,
-    step_type: s.step_type,
-    configuration: sanitizeStepConfiguration(s.configuration),
-  }));
-
-  const { error: stepsError } = await supabase.from("campaign_steps").insert(stepRows);
-  if (stepsError) {
-    await supabase.from("campaigns").delete().eq("id", campaign.id);
-    mapSchemaError(stepsError);
-    throw new CampaignDataError("Failed to save campaign steps", "CREATE_FAILED");
-  }
-
-  const full = await getCampaignById(campaign.id);
-  if (!full) throw new CampaignDataError("Failed to load created campaign", "CREATE_FAILED");
-  return full;
+  const doc = await campaignsDomain.createCampaign(ctx, {
+    name,
+    description: input.description ?? null,
+    leadListId: input.lead_list_id ?? null,
+    linkedinAccountId: input.linkedin_account_id ?? null,
+    settings: toSettingsInput(input.settings),
+    ...stepsToSequence(steps),
+  });
+  return mapCampaignRow(doc);
 }
 
 export async function updateCampaign(
@@ -240,89 +177,34 @@ export async function updateCampaign(
     name?: string;
     description?: string | null;
     lead_list_id?: string | null;
+    linkedin_account_id?: string | null;
     settings?: CampaignSettings;
-    status?: string;
   },
 ): Promise<CampaignRow> {
-  const { supabase, ctx } = await getScopedClient();
-
-  const existing = await getCampaignById(campaignId);
-  if (!existing) throw new CampaignDataError("Campaign not found", "NOT_FOUND");
-
-  const patch: Record<string, unknown> = {};
-
-  if (input.name !== undefined) {
-    const name = validateCampaignName(input.name);
-    if (!name) throw new CampaignDataError("Invalid campaign name", "VALIDATION");
-    patch.name = name;
-  }
-  if (input.description !== undefined) patch.description = input.description?.trim() || null;
-  if (input.settings !== undefined) patch.settings = input.settings;
-  if (input.lead_list_id !== undefined) {
-    if (input.lead_list_id) {
-      await assertLeadListInWorkspace(input.lead_list_id, ctx.workspaceId, supabase);
-    }
-    patch.lead_list_id = input.lead_list_id;
-  }
-  if (input.status !== undefined) {
-    const status = validateCampaignStatus(input.status);
-    if (!status) throw new CampaignDataError("Invalid status", "VALIDATION");
-    if (!canTransitionStatus(existing.status, status)) {
-      throw new CampaignDataError("Status change not allowed", "VALIDATION");
-    }
-    patch.status = status;
-  }
-
-  const { data, error } = await supabase
-    .from("campaigns")
-    .update(patch)
-    .eq("id", campaignId)
-    .eq("workspace_id", ctx.workspaceId)
-    .select()
-    .single();
-
-  if (error || !data) throw new CampaignDataError("Failed to update campaign", "UPDATE_FAILED");
-  return data as CampaignRow;
+  const ctx = await scoped();
+  const doc = await campaignsDomain.updateCampaign(ctx, campaignId, {
+    name: input.name,
+    description: input.description,
+    leadListId: input.lead_list_id,
+    linkedinAccountId: input.linkedin_account_id,
+    settings: toSettingsInput(input.settings),
+  });
+  return mapCampaignRow(doc);
 }
 
 export async function replaceCampaignSteps(campaignId: string, steps: StepInput[]): Promise<void> {
-  const { supabase, ctx } = await getScopedClient();
+  const ctx = await scoped();
   const validated = validateStepsInput(steps);
-  if (!validated) throw new CampaignDataError("Invalid sequence steps", "VALIDATION");
+  if (!validated) throw badRequest("Invalid sequence steps");
+  await campaignsDomain.updateCampaign(ctx, campaignId, stepsToSequence(validated));
+}
 
-  const existing = await getCampaignById(campaignId);
-  if (!existing) throw new CampaignDataError("Campaign not found", "NOT_FOUND");
-  if (existing.status === "active") {
-    throw new CampaignDataError("Pause the campaign before editing steps", "VALIDATION");
-  }
-
-  const { error: delError } = await supabase
-    .from("campaign_steps")
-    .delete()
-    .eq("campaign_id", campaignId)
-    .eq("workspace_id", ctx.workspaceId);
-
-  if (delError) throw new CampaignDataError("Failed to update steps", "UPDATE_FAILED");
-
-  const { error: insError } = await supabase.from("campaign_steps").insert(
-    validated.map((s) => ({
-      campaign_id: campaignId,
-      workspace_id: ctx.workspaceId,
-      step_order: s.step_order,
-      step_type: s.step_type,
-      configuration: sanitizeStepConfiguration(s.configuration),
-    })),
-  );
-
-  if (insError) throw new CampaignDataError("Failed to save steps", "UPDATE_FAILED");
+export async function transitionCampaign(campaignId: string, status: string): Promise<CampaignRow> {
+  const ctx = await scoped();
+  return mapCampaignRow(await campaignsDomain.transitionCampaign(ctx, campaignId, status));
 }
 
 export async function deleteCampaign(campaignId: string): Promise<void> {
-  const { supabase, ctx } = await getScopedClient();
-  const { error } = await supabase
-    .from("campaigns")
-    .delete()
-    .eq("id", campaignId)
-    .eq("workspace_id", ctx.workspaceId);
-  if (error) throw new CampaignDataError("Failed to delete campaign", "DELETE_FAILED");
+  const ctx = await scoped();
+  await campaignsDomain.deleteCampaign(ctx, campaignId);
 }

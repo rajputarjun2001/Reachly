@@ -1,10 +1,10 @@
 type DemoEnvironmentBannerProps = {
-  supabaseConfigured: boolean;
+  liveMode: boolean;
 };
 
-/** Shown only when the app runs without Supabase (local demo). Hidden after sign-in / configured env. */
-export function DemoEnvironmentBanner({ supabaseConfigured }: DemoEnvironmentBannerProps) {
-  if (supabaseConfigured) {
+/** Shown only when the app runs without a configured backend (local demo). Hidden after sign-in / configured env. */
+export function DemoEnvironmentBanner({ liveMode }: DemoEnvironmentBannerProps) {
+  if (liveMode) {
     return null;
   }
 
@@ -20,7 +20,7 @@ export function DemoEnvironmentBanner({ supabaseConfigured }: DemoEnvironmentBan
         textAlign: "center",
       }}
     >
-      <strong>Demo mode.</strong> Supabase is not configured — screens use sample data only.{" "}
+      <strong>Demo mode.</strong> The backend is not configured — screens use sample data only.{" "}
       <a href="/setup" style={{ color: "var(--primary)", fontWeight: 600 }}>Setup guide</a>
     </div>
   );

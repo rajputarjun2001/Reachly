@@ -137,6 +137,14 @@ export function UploadLeadsModal({ open, onClose, onSuccess }: UploadModalProps)
   );
 }
 
+function leadStatusBadge(status: LeadRow["status"]) {
+  if (status === "replied") return "badge badge-blue";
+  if (status === "connected" || status.startsWith("msg")) return "badge badge-green";
+  if (status === "connection_sent") return "badge badge-indigo";
+  if (status === "blacklisted" || status === "skipped") return "badge badge-red";
+  return "badge badge-gray";
+}
+
 function leadDisplayName(lead: LeadRow) {
   const parts = [lead.first_name, lead.last_name].filter(Boolean);
   if (parts.length) return parts.join(" ");
@@ -201,7 +209,7 @@ export function LeadDetailModal({ list, open, onClose, onListChanged }: LeadDeta
 
   const onDeleteList = () => {
     if (!list) return;
-    if (!window.confirm(`Delete "${list.name}"? Leads in this list will be unassigned, not deleted.`)) return;
+    if (!window.confirm(`Delete "${list.name}"? This permanently deletes the list and all of its leads.`)) return;
     startTransition(async () => {
       const result = await deleteLeadListAction(list.id);
       if (result.error) setError(result.error);
@@ -307,7 +315,7 @@ export function LeadDetailModal({ list, open, onClose, onListChanged }: LeadDeta
                 <th>Name</th>
                 <th>Company</th>
                 <th>Title</th>
-                <th>Source</th>
+                <th>Status</th>
                 <th>LinkedIn</th>
                 <th />
               </tr>
@@ -318,7 +326,7 @@ export function LeadDetailModal({ list, open, onClose, onListChanged }: LeadDeta
                   <td className="td-main">{leadDisplayName(lead)}</td>
                   <td>{lead.company ?? "—"}</td>
                   <td>{lead.job_title ?? "—"}</td>
-                  <td><span className="badge badge-gray">{lead.source}</span></td>
+                  <td><span className={leadStatusBadge(lead.status)}>{lead.status.replace(/_/g, " ")}</span></td>
                   <td>
                     {lead.linkedin_url ? (
                       <a

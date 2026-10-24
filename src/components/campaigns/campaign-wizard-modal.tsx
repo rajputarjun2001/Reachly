@@ -3,10 +3,12 @@
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { ModalShell } from "@/components/modals/modal-shell";
-import { DEFAULT_CAMPAIGN_STEPS } from "@/lib/campaigns/constants";
-import type { CampaignStepConfiguration } from "@/lib/campaigns/types";
+import { DEFAULT_CAMPAIGN_STEPS, MAX_CAMPAIGN_STEPS } from "@/lib/campaigns/constants";
+import type { CampaignStepConfiguration, CampaignStepType } from "@/lib/campaigns/types";
+import type { AccountOption } from "@/lib/accounts/types";
 import {
   createCampaignAction,
+  getAccountsForCampaignAction,
   getLeadListsForCampaignAction,
 } from "@/app/(app)/campaigns/actions";
 import { appRoutes } from "@/lib/routes";
@@ -15,7 +17,7 @@ type LeadListOption = { id: string; name: string; lead_count: number };
 
 type WizardStep = {
   step_order: number;
-  step_type: string;
+  step_type: CampaignStepType;
   configuration: CampaignStepConfiguration;
 };
 
@@ -25,13 +27,24 @@ type CampaignWizardModalProps = {
   liveMode: boolean;
 };
 
+const TIMEZONES = [
+  { value: "", label: "Workspace default" },
+  { value: "Asia/Kolkata", label: "Asia/Kolkata (IST)" },
+  { value: "Europe/London", label: "Europe/London" },
+  { value: "America/New_York", label: "America/New_York" },
+  { value: "America/Los_Angeles", label: "America/Los_Angeles" },
+  { value: "UTC", label: "UTC" },
+];
+
 export function CampaignWizardModal({ open, onClose, liveMode }: CampaignWizardModalProps) {
   const router = useRouter();
   const [tab, setTab] = useState(0);
   const [name, setName] = useState("");
   const [goal, setGoal] = useState("");
   const [dailyLimit, setDailyLimit] = useState("10");
-  const [timezone, setTimezone] = useState("Asia/Kolkata (IST)");
+  const [timezone, setTimezone] = useState("");
+  const [accountId, setAccountId] = useState("");
+  const [accounts, setAccounts] = useState<AccountOption[]>([]);
   const [leadListId, setLeadListId] = useState("");
   const [leadLists, setLeadLists] = useState<LeadListOption[]>([]);
   const [steps, setSteps] = useState<WizardStep[]>(DEFAULT_CAMPAIGN_STEPS);
@@ -46,16 +59,50 @@ export function CampaignWizardModal({ open, onClose, liveMode }: CampaignWizardM
       setMessage(null);
       setSteps(DEFAULT_CAMPAIGN_STEPS);
       setLeadListId("");
+      setAccountId("");
     }
   }, [open]);
 
   useEffect(() => {
     if (!open || !liveMode) return;
     startTransition(async () => {
-      const result = await getLeadListsForCampaignAction();
-      if (result.lists) setLeadLists(result.lists);
+      const [listsResult, accountsResult] = await Promise.all([
+        getLeadListsForCampaignAction(),
+        getAccountsForCampaignAction(),
+      ]);
+      if (listsResult.lists) setLeadLists(listsResult.lists);
+      if (accountsResult.accounts) {
+        setAccounts(accountsResult.accounts);
+        const firstActive = accountsResult.accounts.find((a) => a.status === "active");
+        if (firstActive) setAccountId((current) => current || firstActive.id);
+      }
     });
   }, [open, liveMode]);
+
+  const updateStep = (idx: number, patch: Partial<CampaignStepConfiguration>) => {
+    setSteps((current) => {
+      const next = [...current];
+      next[idx] = { ...next[idx], configuration: { ...next[idx].configuration, ...patch } };
+      return next;
+    });
+  };
+
+  const addMessage = () => {
+    setSteps((current) => [
+      ...current,
+      {
+        step_order: current.length + 1,
+        step_type: "message",
+        configuration: { label: `Follow-up ${current.length}`, body_template: "", delay_days: 3 },
+      },
+    ]);
+  };
+
+  const removeStep = (idx: number) => {
+    setSteps((current) =>
+      current.filter((_, i) => i !== idx).map((s, i) => ({ ...s, step_order: i + 1 })),
+    );
+  };
 
   const onCreate = () => {
     if (!liveMode) return;
@@ -70,9 +117,10 @@ export function CampaignWizardModal({ open, onClose, liveMode }: CampaignWizardM
     const formData = new FormData();
     formData.set("name", name);
     formData.set("lead_list_id", leadListId);
+    formData.set("linkedin_account_id", accountId);
     formData.set("goal", goal);
     formData.set("daily_limit", dailyLimit);
-    formData.set("timezone", timezone.split(" ")[0]);
+    formData.set("timezone", timezone);
     formData.set("steps_json", JSON.stringify(steps));
     startTransition(async () => {
       const result = await createCampaignAction(formData);
@@ -88,6 +136,8 @@ export function CampaignWizardModal({ open, onClose, liveMode }: CampaignWizardM
       }
     });
   };
+
+  const selectedAccount = accounts.find((a) => a.id === accountId);
 
   return (
     <ModalShell
@@ -124,7 +174,7 @@ export function CampaignWizardModal({ open, onClose, liveMode }: CampaignWizardM
     >
       {!liveMode && (
         <p className="form-hint" style={{ marginBottom: 12 }}>
-          Demo preview — configure Supabase and sign in to create real campaigns.
+          Demo preview — configure the backend and sign in to create real campaigns.
         </p>
       )}
       <div className="tabs" id="campaignWizardTabs">
@@ -160,14 +210,34 @@ export function CampaignWizardModal({ open, onClose, liveMode }: CampaignWizardM
           </div>
           <div className="form-group">
             <label className="form-label" htmlFor="camp-account">LinkedIn Account</label>
-            <select id="camp-account" className="form-input form-select" disabled>
-              <option>Not connected — integration coming soon</option>
-            </select>
-            <div className="form-hint">Account linking is not available in this release.</div>
+            {liveMode && accounts.length > 0 ? (
+              <select
+                id="camp-account"
+                className="form-input form-select"
+                value={accountId}
+                onChange={(e) => setAccountId(e.target.value)}
+              >
+                <option value="">Choose later…</option>
+                {accounts.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.label}{a.status === "active" ? "" : ` (${a.status})`}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <select id="camp-account" className="form-input form-select" disabled>
+                <option>No accounts connected</option>
+              </select>
+            )}
+            <div className="form-hint">
+              {liveMode && accounts.length === 0
+                ? "Connect an account on the LinkedIn Accounts page before launching. You can still save a draft."
+                : "Requests are sent from this account; it must be connected when you start the campaign."}
+            </div>
           </div>
           <div className="form-row">
             <div className="form-group">
-              <label className="form-label" htmlFor="camp-limit">Daily Limit (saved)</label>
+              <label className="form-label" htmlFor="camp-limit">Daily Limit</label>
               <select
                 id="camp-limit"
                 className="form-input form-select"
@@ -181,7 +251,7 @@ export function CampaignWizardModal({ open, onClose, liveMode }: CampaignWizardM
               </select>
             </div>
             <div className="form-group">
-              <label className="form-label" htmlFor="camp-tz">Timezone (saved)</label>
+              <label className="form-label" htmlFor="camp-tz">Timezone</label>
               <select
                 id="camp-tz"
                 className="form-input form-select"
@@ -189,7 +259,9 @@ export function CampaignWizardModal({ open, onClose, liveMode }: CampaignWizardM
                 onChange={(e) => setTimezone(e.target.value)}
                 disabled={!liveMode}
               >
-                <option>Asia/Kolkata (IST)</option>
+                {TIMEZONES.map((tz) => (
+                  <option key={tz.value} value={tz.value}>{tz.label}</option>
+                ))}
               </select>
             </div>
           </div>
@@ -232,35 +304,61 @@ export function CampaignWizardModal({ open, onClose, liveMode }: CampaignWizardM
       {tab === 2 && (
         <div>
           <p className="form-hint" style={{ marginBottom: 12 }}>
-            Configure message templates. Sending is not enabled yet — this saves your sequence only.
+            Step 1 is the connection request (note optional, max 280 characters). Follow-ups are sent after the
+            lead accepts, each waiting the given number of days. Variables: <code>{"{{first_name}}"}</code>,{" "}
+            <code>{"{{last_name}}"}</code>, <code>{"{{company}}"}</code>, <code>{"{{job_title}}"}</code>.
           </p>
           {steps.map((step, idx) => (
             <div key={step.step_order} className="form-group">
-              <label className="form-label">{step.configuration.label ?? `Step ${step.step_order}`}</label>
+              <div className="flex-between">
+                <label className="form-label">{step.configuration.label ?? `Step ${step.step_order}`}</label>
+                {step.step_type === "message" ? (
+                  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <span className="text-xs color-muted">Wait</span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={60}
+                      className="form-input"
+                      style={{ width: 70 }}
+                      aria-label={`Delay days for step ${step.step_order}`}
+                      value={step.configuration.delay_days ?? 0}
+                      onChange={(e) => updateStep(idx, { delay_days: Number(e.target.value) })}
+                      disabled={!liveMode}
+                    />
+                    <span className="text-xs color-muted">days</span>
+                    <button type="button" className="btn btn-ghost btn-sm" onClick={() => removeStep(idx)} disabled={!liveMode}>
+                      Remove
+                    </button>
+                  </div>
+                ) : null}
+              </div>
               <textarea
                 className="form-input"
                 rows={3}
+                maxLength={step.step_type === "connection_request" ? 280 : undefined}
                 value={step.configuration.body_template ?? ""}
-                onChange={(e) => {
-                  const next = [...steps];
-                  next[idx] = {
-                    ...step,
-                    configuration: { ...step.configuration, body_template: e.target.value },
-                  };
-                  setSteps(next);
-                }}
+                onChange={(e) => updateStep(idx, { body_template: e.target.value })}
                 disabled={!liveMode}
               />
             </div>
           ))}
+          {steps.length < MAX_CAMPAIGN_STEPS ? (
+            <button type="button" className="btn btn-outline btn-sm" onClick={addMessage} disabled={!liveMode}>
+              ＋ Add follow-up
+            </button>
+          ) : null}
         </div>
       )}
       {tab === 3 && (
         <div className="form-hint">
           <p><strong>{name || "Untitled campaign"}</strong> · draft</p>
+          <p>LinkedIn account: {selectedAccount?.label ?? "not selected"}</p>
           <p>Lead list: {leadLists.find((l) => l.id === leadListId)?.name ?? "—"}</p>
           <p>{steps.length} sequence steps · daily limit {dailyLimit}</p>
-          <p style={{ marginTop: 8 }}>Status stays <strong>draft</strong> until you activate it (no messages will be sent automatically).</p>
+          <p style={{ marginTop: 8 }}>
+            The campaign stays a <strong>draft</strong> until you press Start on its detail page.
+          </p>
         </div>
       )}
     </ModalShell>

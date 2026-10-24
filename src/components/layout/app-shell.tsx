@@ -11,7 +11,7 @@ type AppShellProps = {
   workspacePlan: string;
   workspaceInitials: string;
   showSignOut?: boolean;
-  supabaseConfigured?: boolean;
+  liveMode?: boolean;
 };
 
 export function AppShell({
@@ -20,7 +20,7 @@ export function AppShell({
   workspacePlan,
   workspaceInitials,
   showSignOut,
-  supabaseConfigured,
+  liveMode,
 }: AppShellProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -32,7 +32,7 @@ export function AppShell({
         workspacePlan={workspacePlan}
         workspaceInitials={workspaceInitials}
         showSignOut={showSignOut}
-        supabaseConfigured={supabaseConfigured}
+        liveMode={liveMode}
       />
       <main className="main">
         <button
@@ -53,7 +53,7 @@ export function AppShell({
         </button>
         {children}
       </main>
-      <AppModals supabaseConfigured={supabaseConfigured} />
+      <AppModals liveMode={liveMode} />
     </div>
   );
 }

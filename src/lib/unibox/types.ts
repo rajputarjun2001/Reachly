@@ -39,10 +39,16 @@ export type MessageRow = {
 };
 
 export type ConversationSummary = ConversationRow & {
+  has_unread: boolean;
   lead_first_name: string | null;
   lead_last_name: string | null;
   lead_company: string | null;
   lead_job_title: string | null;
+  lead_linkedin_url: string | null;
+  campaign_name: string | null;
+  account_label: string | null;
+  /** True when the thread is tied to a lead and a LinkedIn account, so replies can be sent. */
+  can_reply: boolean;
 };
 
 export type ConversationWithMessages = ConversationSummary & {

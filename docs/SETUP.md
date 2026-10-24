@@ -2,9 +2,9 @@
 
 ## Prerequisites
 
-- Node.js 20+
-- npm (or pnpm — use the same package manager consistently)
-- [Supabase CLI](https://supabase.com/docs/guides/cli) for local DB and migrations (optional but recommended)
+- Node.js 22.12+
+- npm
+- Docker Desktop (used for local MongoDB and Redis)
 
 ## 1. Install dependencies
 
@@ -15,82 +15,52 @@ npm install
 
 ## 2. Environment variables
 
-Copy the example file:
-
 ```bash
-cp .env.example .env.local
+cp .env.example .env
 ```
-
-Set:
 
 | Variable | Description |
 |----------|-------------|
-| `NEXT_PUBLIC_SUPABASE_URL` | Project URL (`https://<ref>.supabase.co`) |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Publishable (anon) key from Supabase **Project Settings → API** |
-| `NEXT_PUBLIC_SITE_URL` | App URL for email links (e.g. `http://localhost:3000`) |
+| `PORT` | HTTP port (default `3000`) |
+| `NEXT_PUBLIC_SITE_URL` | Public origin of the app |
+| `MONGO_URI` | MongoDB connection string |
+| `REDIS_HOST` / `REDIS_PORT` | BullMQ connection |
+| `JWT_SECRET` | Session signing key, at least 32 characters |
+| `ENCRYPTION_KEY` | 64 hex characters (32 bytes) for LinkedIn password and cookie encryption |
+| `WORKERS_ENABLED` | `true` to run queues in this process |
+| `DOCKER_ENABLED` | `true` to isolate each LinkedIn account in its own browser container |
 
-**Never** commit `.env.local` or put the **service role** key in the repo or in `NEXT_PUBLIC_*` variables.
-
-If variables are missing, the app still starts: visit `/setup` for status. Authentication is disabled until configured.
-
-## 3. Supabase project
-
-1. Create a project at [supabase.com](https://supabase.com).
-2. Under **Authentication → URL configuration**, add:
-   - Site URL: `http://localhost:3000` (or your dev URL)
-   - Redirect URLs: `http://localhost:3000/auth/callback`, `http://localhost:3000/reset-password`
-3. Enable **Email** provider under Authentication → Providers.
-4. **URL configuration** (required for sign-up links):
-   - Site URL: `http://localhost:3000`
-   - Redirect URLs: `http://localhost:3000/auth/callback`, `http://localhost:3000/reset-password`
-5. **Local sign-up troubleshooting:** If sign-up fails with a confirmation/email error, either disable **Confirm email** on the Email provider (common for local dev) or configure SMTP. The sign-up form shows the Supabase error message in development.
-
-## 4. Apply migrations
-
-From the repo root (where `supabase/migrations` lives):
+Generate secrets:
 
 ```bash
-supabase link --project-ref <your-project-ref>
-supabase db push
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 ```
 
-Or local development:
+Use one value for `JWT_SECRET` and a **different** value for `ENCRYPTION_KEY`.
+
+Never commit `.env`. There is no service-role key and no Supabase project.
+
+If the required variables are missing, the UI still starts in demo mode. Visit `/setup` for the current status.
+
+## 3. Start MongoDB and Redis
 
 ```bash
-supabase start
-supabase db reset
+npm run services:up
 ```
 
-Migrations (apply in order):
-
-- `supabase/migrations/20260222120000_initial_auth_workspace.sql`
-- `supabase/migrations/20260222130000_lead_lists_and_leads.sql`
-- `supabase/migrations/20260222140000_campaigns_and_steps.sql`
-- `supabase/migrations/20260222150000_unibox_conversations.sql`
-- `supabase/migrations/20260222160000_unibox_internal_notes.sql`
-- `supabase/migrations/20260222170000_campaign_execution.sql`
-
-After migrations, sign in and open **Leads** to import CSV lists. The Leads route is **server-rendered per request** (`force-dynamic`) so authenticated users never receive the static demo preview.
-
-### CSV import (Leads page)
-
-| Column | Required | Notes |
-|--------|----------|--------|
-| `linkedin_url` | Yes | Normalized URL; must be a `linkedin.com` profile URL |
-| `first_name`, `last_name` | No | |
-| `email` | No | Lowercased; invalid emails reject the row |
-| `company` | No | |
-| `title` / `job_title` | No | |
-
-Limits: **2MB** file, **2000** data rows per import. Duplicates within the file are skipped; existing workspace leads with the same `linkedin_url` are skipped (not updated).
-
-Run database policy smoke tests (local Supabase only):
+This runs `docker compose` with MongoDB on port 27017 and Redis on port 6379. Data is stored in named Docker volumes.
 
 ```bash
-supabase start
-supabase db reset
-supabase db test
+npm run services:down
 ```
+
+## 4. Playwright (needed to connect a LinkedIn account)
+
+```bash
+npm run browsers:install
+```
+
+Set `DOCKER_ENABLED=true` only if you also want a dedicated browser container per account. That is optional; the default is a local headless Chromium.
 
 ## 5. Run the app
 
@@ -98,27 +68,13 @@ supabase db test
 npm run dev
 ```
 
-- Setup status: http://localhost:3000/setup  
-- Sign in: http://localhost:3000/login  
-- After first sign-in: http://localhost:3000/workspace/setup  
+Open http://localhost:3000. Sign up at `/signup` — that creates the first user **and** a workspace. The same process serves `/api/health` and the rest of the REST API.
 
 ## 6. Tests
 
 ```bash
 npm test
 npm run typecheck
-npm run lint
-npm run build
 ```
 
-RLS integration tests (require local Supabase + `pgtap` if enabled):
-
-```bash
-supabase db test
-```
-
-See `supabase/tests/rls_policies.test.sql`.
-
-## 7. Email (production)
-
-Configure SMTP or Supabase Auth email templates for verification and password reset.
+Server tests use an in-memory MongoDB. They do not need Docker or Redis.

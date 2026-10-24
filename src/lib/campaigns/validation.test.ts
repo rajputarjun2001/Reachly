@@ -13,7 +13,8 @@ describe("campaign validation", () => {
 
   it("allows defined status transitions", () => {
     expect(canTransitionStatus("draft", "active")).toBe(true);
-    expect(canTransitionStatus("draft", "cancelled")).toBe(true);
+    expect(canTransitionStatus("draft", "archived")).toBe(true);
+    expect(canTransitionStatus("draft", "cancelled")).toBe(false);
     expect(canTransitionStatus("active", "paused")).toBe(true);
     expect(canTransitionStatus("active", "completed")).toBe(true);
     expect(canTransitionStatus("paused", "active")).toBe(true);

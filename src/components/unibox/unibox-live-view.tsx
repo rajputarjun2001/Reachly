@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { Search } from "lucide-react";
 import { appRoutes } from "@/lib/routes";
@@ -18,8 +19,12 @@ import {
   createInternalNoteAction,
   deleteInternalNoteAction,
   fetchConversationDetailAction,
+  sendReplyAction,
+  setConversationStatusAction,
   updateInternalNoteAction,
 } from "@/app/(app)/unibox/actions";
+
+type InboxFilter = "all" | "unread" | "replied";
 
 type UniboxLiveViewProps = {
   initialList: ConversationSummary[];
@@ -28,7 +33,13 @@ type UniboxLiveViewProps = {
 };
 
 export function UniboxLiveView({ initialList, initialDetail, loadError }: UniboxLiveViewProps) {
+  const router = useRouter();
   const [selectedId, setSelectedId] = useState(initialDetail?.id ?? initialList[0]?.id ?? "");
+  const [inboxFilter, setInboxFilter] = useState<InboxFilter>("all");
+  const [readIds, setReadIds] = useState<Set<string>>(() => new Set(initialDetail ? [initialDetail.id] : []));
+  const [replyDraft, setReplyDraft] = useState("");
+  const [replyStatus, setReplyStatus] = useState<{ type: "error" | "success"; text: string } | null>(null);
+  const [sending, startSending] = useTransition();
   const [detail, setDetail] = useState<ConversationWithMessages | null>(initialDetail);
   const [search, setSearch] = useState("");
   const [detailError, setDetailError] = useState<string | null>(null);
@@ -59,10 +70,13 @@ export function UniboxLiveView({ initialList, initialDetail, loadError }: Unibox
       }
       setDetailError(null);
       setDetail(result.conversation ?? null);
+      setReadIds((prev) => new Set(prev).add(selectedId));
     });
   }, [selectedId, initialDetail]);
 
   useEffect(() => {
+    setReplyDraft("");
+    setReplyStatus(null);
     setNoteDraft("");
     setNoteFormError(null);
     setNoteFormSuccess(null);
@@ -145,14 +159,56 @@ export function UniboxLiveView({ initialList, initialDetail, loadError }: Unibox
     });
   };
 
+  const handleSendReply = () => {
+    if (!selectedId) return;
+    const trimmed = replyDraft.trim();
+    if (!trimmed) return;
+    if (trimmed.length > MESSAGE_BODY_MAX) {
+      setReplyStatus({ type: "error", text: `Message must be ${MESSAGE_BODY_MAX} characters or fewer.` });
+      return;
+    }
+    setReplyStatus(null);
+    startSending(async () => {
+      const result = await sendReplyAction(selectedId, trimmed);
+      if (result.error) {
+        setReplyStatus({ type: "error", text: result.error });
+        return;
+      }
+      setReplyDraft("");
+      setReplyStatus({ type: "success", text: result.success ?? "Sent." });
+      refreshDetail(selectedId);
+      router.refresh();
+    });
+  };
+
+  const handleToggleArchive = () => {
+    if (!selectedId || !detail) return;
+    const next = detail.status === "archived" ? "open" : "archived";
+    startTransition(async () => {
+      const result = await setConversationStatusAction(selectedId, next);
+      if (result.error) {
+        setDetailError(result.error);
+        return;
+      }
+      refreshDetail(selectedId);
+      router.refresh();
+    });
+  };
+
+  const isUnread = (c: ConversationSummary) => c.has_unread && !readIds.has(c.id);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return initialList;
     return initialList.filter((c) => {
+      if (inboxFilter === "unread" && !(c.has_unread && !readIds.has(c.id))) return false;
+      if (inboxFilter === "replied" && !c.last_message_at) return false;
+      if (!q) return true;
       const name = conversationDisplayName(c).toLowerCase();
       return name.includes(q) || (c.last_message_preview ?? "").toLowerCase().includes(q);
     });
-  }, [initialList, search]);
+  }, [initialList, search, inboxFilter, readIds]);
+
+  const unreadCount = initialList.filter(isUnread).length;
 
   const selectedMeta = initialList.find((c) => c.id === selectedId) ?? detail;
 
@@ -162,7 +218,7 @@ export function UniboxLiveView({ initialList, initialDetail, loadError }: Unibox
         <div className="header">
           <div>
             <div className="header-title">Unibox</div>
-            <div className="header-sub">Workspace inbox (no LinkedIn sync yet)</div>
+            <div className="header-sub">LinkedIn conversations from your connected accounts</div>
           </div>
         </div>
         <div className="content" style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "calc(100vh - 108px)" }}>
@@ -170,7 +226,7 @@ export function UniboxLiveView({ initialList, initialDetail, loadError }: Unibox
             <div style={{ fontSize: 56, marginBottom: 16 }}>💬</div>
             <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 8 }}>No conversations yet</div>
             <div style={{ fontSize: 13.5, color: "var(--fg2)", lineHeight: 1.7, marginBottom: 24 }}>
-              Replies from LinkedIn will appear here after a supported integration syncs them. Live mode never shows sample threads.
+              Messages are synced from connected LinkedIn accounts every few minutes. Replies to your campaigns will show up here.
             </div>
             <Link href={appRoutes.campaigns} className="btn btn-outline">View campaigns →</Link>
           </div>
@@ -192,14 +248,21 @@ export function UniboxLiveView({ initialList, initialDetail, loadError }: Unibox
       <div className="header">
         <div>
           <div className="header-title">Unibox</div>
-          <div className="header-sub">Persisted conversations in your workspace</div>
+          <div className="header-sub">
+            {initialList.length} conversation{initialList.length === 1 ? "" : "s"} · {unreadCount} unread
+          </div>
         </div>
         <div style={{ display: "flex", gap: 8, marginLeft: "auto" }}>
-          <select className="form-input form-select btn-sm" style={{ width: 160 }} disabled aria-label="Filter by account">
-            <option>Accounts (coming soon)</option>
-          </select>
-          <select className="form-input form-select btn-sm" style={{ width: 140 }} disabled aria-label="Filter by campaign">
-            <option>Campaigns (coming soon)</option>
+          <select
+            className="form-input form-select btn-sm"
+            style={{ width: 160 }}
+            aria-label="Filter conversations"
+            value={inboxFilter}
+            onChange={(e) => setInboxFilter(e.target.value as InboxFilter)}
+          >
+            <option value="all">All conversations</option>
+            <option value="unread">Unread</option>
+            <option value="replied">With messages</option>
           </select>
         </div>
       </div>
@@ -233,7 +296,10 @@ export function UniboxLiveView({ initialList, initialDetail, loadError }: Unibox
                     <div className="avatar avatar-sm">{initialsFromName(name)}</div>
                     <div className="convo-meta">
                       <div className="flex-between">
-                        <div className="convo-name">{name}</div>
+                        <div className="convo-name" style={isUnread(c) ? { fontWeight: 800 } : undefined}>
+                          {isUnread(c) ? <span aria-label="Unread" style={{ color: "var(--primary)", marginRight: 4 }}>●</span> : null}
+                          {name}
+                        </div>
                         <div className="convo-time">{formatRelativeTime(c.last_message_at)}</div>
                       </div>
                       <div className="convo-preview">{c.last_message_preview ?? "No messages yet"}</div>
@@ -251,14 +317,23 @@ export function UniboxLiveView({ initialList, initialDetail, loadError }: Unibox
                   <div style={{ fontSize: 14, fontWeight: 700 }}>{conversationDisplayName(selectedMeta)}</div>
                   <div className="text-xs color-muted">
                     {[selectedMeta.lead_job_title, selectedMeta.lead_company].filter(Boolean).join(" · ") || selectedMeta.title}
+                    {selectedMeta.campaign_name ? ` · ${selectedMeta.campaign_name}` : ""}
+                    {selectedMeta.account_label ? ` · via ${selectedMeta.account_label}` : ""}
                   </div>
                 </div>
                 <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-                  <button type="button" className="btn btn-outline btn-sm" disabled title="Integration not available">
-                    👤 View Profile
-                  </button>
-                  <button type="button" className="btn btn-primary btn-sm" disabled title="Integration not available">
-                    🗓 Book Meeting
+                  {selectedMeta.lead_linkedin_url ? (
+                    <a
+                      href={selectedMeta.lead_linkedin_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="btn btn-outline btn-sm"
+                    >
+                      👤 View Profile
+                    </a>
+                  ) : null}
+                  <button type="button" className="btn btn-outline btn-sm" onClick={handleToggleArchive} disabled={pending || !detail}>
+                    {detail?.status === "archived" ? "Reopen" : "Archive"}
                   </button>
                 </div>
               </div>
@@ -431,16 +506,39 @@ export function UniboxLiveView({ initialList, initialDetail, loadError }: Unibox
               <div className="chat-compose">
                 <textarea
                   rows={2}
-                  placeholder="External sending is not available yet"
-                  aria-label="Outbound message (disabled)"
-                  disabled
+                  placeholder={
+                    selectedMeta.can_reply
+                      ? "Write a reply — it is sent from the connected LinkedIn account"
+                      : "Replies need a lead profile and a connected LinkedIn account"
+                  }
+                  aria-label="Reply message"
+                  value={replyDraft}
+                  onChange={(e) => setReplyDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleSendReply();
+                  }}
+                  disabled={!selectedMeta.can_reply || sending}
                 />
-                <button type="button" className="btn btn-primary" disabled title="LinkedIn sending is not implemented" aria-disabled="true">
-                  Send
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={handleSendReply}
+                  disabled={!selectedMeta.can_reply || sending || !replyDraft.trim()}
+                >
+                  {sending ? "Sending…" : "Send"}
                 </button>
               </div>
-              <p className="form-hint" style={{ padding: "8px 16px", margin: 0 }}>
-                Send does not deliver to LinkedIn. Thread messages appear only from sync or future sending features—not from internal notes above.
+              <p
+                className="form-hint"
+                role={replyStatus ? "status" : undefined}
+                style={{
+                  padding: "8px 16px",
+                  margin: 0,
+                  color: replyStatus?.type === "error" ? "var(--red)" : replyStatus ? "var(--green, #15803d)" : undefined,
+                }}
+              >
+                {replyStatus?.text ??
+                  "Send delivers on LinkedIn through a browser session and can take up to a minute. Ctrl+Enter to send."}
               </p>
             </div>
           ) : (

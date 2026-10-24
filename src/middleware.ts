@@ -1,122 +1,58 @@
-import { createServerClient } from "@supabase/ssr";
 import { type NextRequest, NextResponse } from "next/server";
-import { WORKSPACE_READY_COOKIE, workspaceReadyCookieOptions } from "@/lib/auth/workspace-cookie";
-import { getSupabasePublicEnv, isSupabaseConfigured } from "@/lib/env";
+import { SESSION_COOKIE, verifySession } from "@server/auth/token";
+import { isBackendConfigured } from "@server/config/env";
 
-const AUTH_ROUTES = ["/login", "/signup", "/forgot-password", "/reset-password"];
-const PUBLIC_PREFIXES = ["/auth/", "/setup"];
+const AUTH_ROUTES = ["/login", "/signup"];
+const PROTECTED_PREFIXES = [
+  "/dashboard",
+  "/campaigns",
+  "/leads",
+  "/accounts",
+  "/unibox",
+  "/analytics",
+  "/settings",
+  "/workspace/setup",
+];
 
-function isAuthRoute(pathname: string) {
-  return AUTH_ROUTES.some((r) => pathname === r || pathname.startsWith(`${r}/`));
+const matches = (pathname: string, routes: string[]) =>
+  routes.some((r) => pathname === r || pathname.startsWith(`${r}/`));
+
+function redirectTo(request: NextRequest, pathname: string, next?: string) {
+  const url = request.nextUrl.clone();
+  url.pathname = pathname;
+  url.search = "";
+  if (next) url.searchParams.set("next", next);
+  return NextResponse.redirect(url);
 }
 
-function isPublicRoute(pathname: string) {
-  if (pathname === "/setup") return true;
-  return PUBLIC_PREFIXES.some((p) => pathname.startsWith(p));
-}
-
-function isProtectedAppRoute(pathname: string) {
-  const protectedPrefixes = [
-    "/dashboard",
-    "/campaigns",
-    "/leads",
-    "/accounts",
-    "/unibox",
-    "/analytics",
-    "/settings",
-    "/workspace/setup",
-  ];
-  return protectedPrefixes.some(
-    (p) => pathname === p || pathname.startsWith(`${p}/`),
-  );
-}
-
+/** Cheap edge check of the signed session cookie; pages re-validate against the database. */
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
+  if (!isBackendConfigured()) return NextResponse.next();
 
-  let response = NextResponse.next({ request });
+  const session = await verifySession(request.cookies.get(SESSION_COOKIE)?.value);
 
-  if (!isSupabaseConfigured()) {
-    return response;
-  }
-
-  const env = getSupabasePublicEnv()!;
-
-  const supabase = createServerClient(env.url, env.anonKey, {
-    cookies: {
-      getAll() {
-        return request.cookies.getAll();
-      },
-      setAll(cookiesToSet) {
-        cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
-        response = NextResponse.next({ request });
-        cookiesToSet.forEach(({ name, value, options }) => {
-          response.cookies.set(name, value, options);
-        });
-      },
-    },
-  });
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (user && isAuthRoute(pathname)) {
-    const url = request.nextUrl.clone();
-    url.pathname = "/dashboard";
-    return NextResponse.redirect(url);
-  }
-
-  if (!user && isProtectedAppRoute(pathname) && !isPublicRoute(pathname)) {
-    const url = request.nextUrl.clone();
-    url.pathname = "/login";
-    url.searchParams.set("next", pathname);
-    return NextResponse.redirect(url);
-  }
-
-  const hasWorkspaceCookie = request.cookies.get(WORKSPACE_READY_COOKIE)?.value === "1";
-
-  async function userHasWorkspace(): Promise<boolean> {
-    const { data: membership } = await supabase
-      .from("workspace_members")
-      .select("workspace_id")
-      .eq("user_id", user!.id)
-      .limit(1)
-      .maybeSingle();
-    return Boolean(membership?.workspace_id);
-  }
-
-  if (user && pathname === "/workspace/setup") {
-    if (hasWorkspaceCookie || (await userHasWorkspace())) {
-      response.cookies.set(WORKSPACE_READY_COOKIE, "1", workspaceReadyCookieOptions);
-      const url = request.nextUrl.clone();
-      url.pathname = "/dashboard";
-      return NextResponse.redirect(url);
+  if (!session) {
+    if (matches(pathname, PROTECTED_PREFIXES)) {
+      const response = redirectTo(request, "/login", pathname);
+      if (request.cookies.has(SESSION_COOKIE)) response.cookies.delete(SESSION_COOKIE);
+      return response;
     }
+    return NextResponse.next();
   }
 
-  if (user && isProtectedAppRoute(pathname) && pathname !== "/workspace/setup") {
-    let hasWorkspace = hasWorkspaceCookie;
-    if (!hasWorkspace) {
-      hasWorkspace = await userHasWorkspace();
-      if (hasWorkspace) {
-        response.cookies.set(WORKSPACE_READY_COOKIE, "1", workspaceReadyCookieOptions);
-      }
-    }
-
-    if (!hasWorkspace) {
-      response.cookies.delete(WORKSPACE_READY_COOKIE);
-      const url = request.nextUrl.clone();
-      url.pathname = "/workspace/setup";
-      return NextResponse.redirect(url);
-    }
+  if (matches(pathname, AUTH_ROUTES)) {
+    return redirectTo(request, session.workspaceId ? "/dashboard" : "/workspace/setup");
   }
-
-  return response;
+  if (!session.workspaceId && matches(pathname, PROTECTED_PREFIXES) && pathname !== "/workspace/setup") {
+    return redirectTo(request, "/workspace/setup");
+  }
+  if (session.workspaceId && pathname === "/workspace/setup") {
+    return redirectTo(request, "/dashboard");
+  }
+  return NextResponse.next();
 }
 
 export const config = {
-  matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
-  ],
+  matcher: ["/((?!api/|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)"],
 };

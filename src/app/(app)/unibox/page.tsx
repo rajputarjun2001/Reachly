@@ -1,33 +1,26 @@
-import { redirect } from "next/navigation";
 import { PreviewSwitch } from "@/components/screens/preview-switch";
 import { UniboxEmpty, UniboxPopulated } from "@/components/screens/unibox-screen";
 import { UniboxLiveView } from "@/components/unibox/unibox-live-view";
-import { isSupabaseConfigured } from "@/lib/env";
-import { getWorkspaceContext } from "@/lib/workspace/context";
-import { createClientIfConfigured } from "@/lib/supabase/server";
+import { isBackendConfigured } from "@/lib/env";
+import { getWorkspaceContext, redirectWithoutWorkspace } from "@/lib/workspace/context";
 import { resolveUniboxPageMode } from "@/lib/unibox/page-mode";
 import {
   getConversationWithMessages,
   listConversations,
-  UniboxDataError,
+  markConversationRead,
 } from "@/lib/unibox/repository";
 
 export const dynamic = "force-dynamic";
 
 export default async function UniboxPage() {
-  const mode = resolveUniboxPageMode(isSupabaseConfigured());
+  const mode = resolveUniboxPageMode(isBackendConfigured());
 
   if (mode === "demo-preview") {
     return <PreviewSwitch populated={<UniboxPopulated />} empty={<UniboxEmpty />} />;
   }
 
   const workspace = await getWorkspaceContext();
-  if (!workspace) {
-    const supabase = await createClientIfConfigured();
-    const user = supabase ? (await supabase.auth.getUser()).data.user : null;
-    if (!user) redirect("/login?next=/unibox");
-    redirect("/workspace/setup");
-  }
+  if (!workspace) return redirectWithoutWorkspace("/unibox");
 
   let loadError: string | null = null;
   let list: Awaited<ReturnType<typeof listConversations>> = {
@@ -40,18 +33,13 @@ export default async function UniboxPage() {
 
   try {
     list = await listConversations({ status: "all", page: 1 });
-    if (list.conversations[0]) {
-      initialDetail = await getConversationWithMessages(list.conversations[0].id);
+    const first = list.conversations[0];
+    if (first) {
+      initialDetail = await getConversationWithMessages(first.id);
+      if (first.has_unread) await markConversationRead(first.id);
     }
-  } catch (err) {
-    if (err instanceof UniboxDataError) {
-      loadError =
-        err.code === "SCHEMA_MISSING"
-          ? `${err.message} Run supabase db push (see docs/SETUP.md).`
-          : err.message;
-    } else {
-      loadError = "Could not load Unibox. Please try again.";
-    }
+  } catch {
+    loadError = "Could not load Unibox. Please try again.";
   }
 
   return (

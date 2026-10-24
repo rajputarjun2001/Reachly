@@ -1,5 +1,5 @@
 export type CampaignsPageMode = "demo-preview" | "live";
 
-export function resolveCampaignsPageMode(supabaseConfigured: boolean): CampaignsPageMode {
-  return supabaseConfigured ? "live" : "demo-preview";
+export function resolveCampaignsPageMode(backendConfigured: boolean): CampaignsPageMode {
+  return backendConfigured ? "live" : "demo-preview";
 }

@@ -1,9 +1,9 @@
 import Link from "next/link";
-import { getSupabaseConfigError, isSupabaseConfigured } from "@/lib/env";
+import { getBackendConfigError, isBackendConfigured } from "@/lib/env";
 
 export default function SetupPage() {
-  const configured = isSupabaseConfigured();
-  const configError = getSupabaseConfigError();
+  const configured = isBackendConfigured();
+  const configError = getBackendConfigError();
 
   return (
     <div style={{ minHeight: "100vh", background: "var(--bg)", padding: 40 }}>
@@ -15,20 +15,19 @@ export default function SetupPage() {
           <p style={{ marginBottom: 16 }}>
             Status:{" "}
             <strong style={{ color: configured ? "var(--green)" : "var(--amber)" }}>
-              {configured ? "Supabase environment variables detected" : "Supabase not configured"}
+              {configured ? "Backend environment variables detected" : "Backend not configured"}
             </strong>
           </p>
           {!configured && configError ? (
             <p role="alert" style={{ color: "var(--fg2)", marginBottom: 16 }}>{configError}</p>
           ) : null}
           <p style={{ marginBottom: 12 }}>
-            See <code>docs/SETUP.md</code> in the repository for Supabase project creation, migrations, and local
-            development.
+            See <code>docs/SETUP.md</code> in the repository for local development.
           </p>
           <ul style={{ paddingLeft: 20, color: "var(--fg2)", marginBottom: 20 }}>
-            <li>Copy <code>.env.example</code> to <code>.env.local</code></li>
-            <li>Set <code>NEXT_PUBLIC_SUPABASE_URL</code> and <code>NEXT_PUBLIC_SUPABASE_ANON_KEY</code></li>
-            <li>Run migrations with the Supabase CLI</li>
+            <li>Copy <code>.env.example</code> to <code>.env</code> and fill in <code>JWT_SECRET</code> and <code>ENCRYPTION_KEY</code></li>
+            <li>Start MongoDB and Redis with <code>npm run services:up</code></li>
+            <li>Install the browser once with <code>npm run browsers:install</code></li>
             <li>Restart <code>npm run dev</code></li>
           </ul>
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>

@@ -13,6 +13,8 @@ import {
   updateCampaignStatusAction,
 } from "@/app/(app)/campaigns/actions";
 
+const FINISHED: CampaignSummary["status"][] = ["archived", "completed", "cancelled", "failed"];
+
 function formatStarted(iso: string) {
   try {
     return `Created ${new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(new Date(iso))}`;
@@ -44,6 +46,7 @@ export function CampaignsLiveView({ initialCampaigns, loadError }: CampaignsLive
   const [activeTab, setActiveTab] = useState<CampaignListFilter | "all">("all");
   const [search, setSearch] = useState("");
   const [pending, startTransition] = useTransition();
+  const [actionError, setActionError] = useState<string | null>(null);
 
   useEffect(() => {
     setCampaigns(initialCampaigns);
@@ -52,7 +55,7 @@ export function CampaignsLiveView({ initialCampaigns, loadError }: CampaignsLive
   const counts = useMemo(() => {
     const active = campaigns.filter((c) => c.status === "active").length;
     const draft = campaigns.filter((c) => c.status === "draft").length;
-    const archived = campaigns.filter((c) => c.status === "archived").length;
+    const archived = campaigns.filter((c) => FINISHED.includes(c.status)).length;
     return { active, draft, archived, all: campaigns.length };
   }, [campaigns]);
 
@@ -61,7 +64,7 @@ export function CampaignsLiveView({ initialCampaigns, loadError }: CampaignsLive
     return campaigns.filter((c) => {
       if (activeTab === "active" && c.status !== "active") return false;
       if (activeTab === "draft" && c.status !== "draft") return false;
-      if (activeTab === "archived" && c.status !== "archived") return false;
+      if (activeTab === "archived" && !FINISHED.includes(c.status)) return false;
       if (q && !c.name.toLowerCase().includes(q)) return false;
       return true;
     });
@@ -77,6 +80,7 @@ export function CampaignsLiveView({ initialCampaigns, loadError }: CampaignsLive
   const runStatus = (id: string, status: string) => {
     startTransition(async () => {
       const result = await updateCampaignStatusAction(id, status);
+      setActionError(result.error ?? null);
       if (!result.error) router.refresh();
     });
   };
@@ -97,6 +101,7 @@ export function CampaignsLiveView({ initialCampaigns, loadError }: CampaignsLive
     if (!window.confirm(`Delete "${c.name}"?`)) return;
     startTransition(async () => {
       const result = await deleteCampaignAction(c.id);
+      setActionError(result.error ?? null);
       if (!result.error) {
         setCampaigns((prev) => prev.filter((x) => x.id !== c.id));
         router.refresh();
@@ -121,7 +126,7 @@ export function CampaignsLiveView({ initialCampaigns, loadError }: CampaignsLive
             <div className="empty-icon">📋</div>
             <div className="empty-title">No campaigns yet</div>
             <div className="empty-sub">
-              A campaign pairs a lead list with a message sequence. Outreach sending is not enabled yet — you can save configuration as a draft.
+              A campaign pairs a LinkedIn account and a lead list with a connection request and follow-up messages.
             </div>
             <button type="button" className="btn btn-primary" onClick={() => openModal("newCampaign")}>
               Create your first campaign
@@ -151,6 +156,9 @@ export function CampaignsLiveView({ initialCampaigns, loadError }: CampaignsLive
         </button>
       </div>
       <div className="content">
+        {actionError ? (
+          <p role="alert" className="form-hint" style={{ color: "var(--red)", marginBottom: 12 }}>{actionError}</p>
+        ) : null}
         <div className="flex-between mb-20">
           <div className="tabs" style={{ marginBottom: 0, borderBottom: "none" }}>
             {tabs.map((t) => (
@@ -178,7 +186,10 @@ export function CampaignsLiveView({ initialCampaigns, loadError }: CampaignsLive
         <div className="grid-2">
           {filtered.map((c) => {
             const badge = statusBadge(c.status);
-            const progress = c.lead_count > 0 ? 0 : 0;
+            const total = c.stats.total_leads || c.lead_count;
+            const progress = total > 0 ? Math.min(100, Math.round((c.stats.connections_sent / total) * 100)) : 0;
+            const progressLabel =
+              c.status === "draft" ? "Not started" : `${c.stats.connections_sent}/${total} contacted`;
             return (
               <div
                 key={c.id}
@@ -199,10 +210,14 @@ export function CampaignsLiveView({ initialCampaigns, loadError }: CampaignsLive
                   }
                 >
                   <div className="dd-item" onClick={() => onRename(c)}>✏️ Edit</div>
-                  <div className="dd-item" onClick={() => runStatus(c.id, c.status === "paused" ? "active" : "paused")}>
-                    {c.status === "paused" ? "▶ Resume" : "⏸ Pause"}
-                  </div>
-                  <div className="dd-item" onClick={() => runStatus(c.id, "archived")}>📦 Archive</div>
+                  {c.status === "active" || c.status === "paused" ? (
+                    <div className="dd-item" onClick={() => runStatus(c.id, c.status === "paused" ? "active" : "paused")}>
+                      {c.status === "paused" ? "▶ Resume" : "⏸ Pause"}
+                    </div>
+                  ) : null}
+                  {c.status !== "archived" && c.status !== "active" ? (
+                    <div className="dd-item" onClick={() => runStatus(c.id, "archived")}>📦 Archive</div>
+                  ) : null}
                   <div className="dd-sep" />
                   <div className="dd-item danger" onClick={() => onDelete(c)}>🗑 Delete</div>
                 </Dropdown>
@@ -217,15 +232,15 @@ export function CampaignsLiveView({ initialCampaigns, loadError }: CampaignsLive
                   </div>
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, borderTop: "1px solid var(--border)", paddingTop: 14 }}>
-                  <div className="acct-stat"><div className="acct-stat-val">0</div><div className="acct-stat-label">Sent</div></div>
-                  <div className="acct-stat"><div className="acct-stat-val color-green">0</div><div className="acct-stat-label">Accepted</div></div>
-                  <div className="acct-stat"><div className="acct-stat-val color-amber">0</div><div className="acct-stat-label">Replies</div></div>
-                  <div className="acct-stat"><div className="acct-stat-val color-primary">0</div><div className="acct-stat-label">Meetings</div></div>
+                  <div className="acct-stat"><div className="acct-stat-val">{c.stats.connections_sent}</div><div className="acct-stat-label">Sent</div></div>
+                  <div className="acct-stat"><div className="acct-stat-val color-green">{c.stats.connections_accepted}</div><div className="acct-stat-label">Accepted</div></div>
+                  <div className="acct-stat"><div className="acct-stat-val color-primary">{c.stats.messages_sent}</div><div className="acct-stat-label">Follow-ups</div></div>
+                  <div className="acct-stat"><div className="acct-stat-val color-amber">{c.stats.replied}</div><div className="acct-stat-label">Replies</div></div>
                 </div>
                 <div>
                   <div className="flex-between mb-4">
                     <span className="text-xs color-muted">Progress</span>
-                    <span className="text-xs fw-700 color-muted">Not sending yet</span>
+                    <span className="text-xs fw-700 color-muted">{progressLabel}</span>
                   </div>
                   <div className="prog-wrap">
                     <div className="prog-bar" style={{ width: `${progress}%`, background: "var(--primary)" }} />

@@ -19,7 +19,14 @@ export type CampaignSettings = {
   goal?: string | null;
   daily_limit?: number | null;
   timezone?: string | null;
-  account_label?: string | null;
+};
+
+export type CampaignOutreachStats = {
+  total_leads: number;
+  connections_sent: number;
+  connections_accepted: number;
+  messages_sent: number;
+  replied: number;
 };
 
 export type CampaignRow = {
@@ -29,8 +36,12 @@ export type CampaignRow = {
   description: string | null;
   status: CampaignStatus;
   lead_list_id: string | null;
+  linkedin_account_id: string | null;
   settings: CampaignSettings;
-  created_by: string;
+  stats: CampaignOutreachStats;
+  paused_reason: string | null;
+  launched_at: string | null;
+  created_by: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -48,12 +59,14 @@ export type CampaignStepRow = {
 
 export type CampaignSummary = CampaignRow & {
   lead_list_name: string | null;
+  linkedin_account_label: string | null;
   lead_count: number;
   step_count: number;
 };
 
 export type CampaignWithSteps = CampaignSummary & {
   steps: CampaignStepRow[];
+  lead_status_counts: Record<string, number>;
 };
 
 export type CampaignListFilter = "all" | "active" | "draft" | "archived";

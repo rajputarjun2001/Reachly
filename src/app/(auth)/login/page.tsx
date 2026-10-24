@@ -1,13 +1,13 @@
 import Link from "next/link";
 import { AuthShell } from "@/components/auth/auth-shell";
 import { AuthForm } from "@/components/auth/auth-form";
-import { SupabaseNotice } from "@/components/auth/supabase-notice";
+import { BackendNotice } from "@/components/auth/backend-notice";
 import { signInAction } from "@/app/(auth)/actions";
 
-type Props = { searchParams: Promise<{ next?: string; reset?: string }> };
+type Props = { searchParams: Promise<{ next?: string }> };
 
 export default async function LoginPage({ searchParams }: Props) {
-  const { next, reset } = await searchParams;
+  const { next } = await searchParams;
 
   return (
     <AuthShell
@@ -22,12 +22,7 @@ export default async function LoginPage({ searchParams }: Props) {
         </p>
       }
     >
-      <SupabaseNotice />
-      {reset === "success" ? (
-        <p role="status" style={{ fontSize: 13, color: "var(--green)", marginBottom: 16 }}>
-          Password updated. Sign in with your new password.
-        </p>
-      ) : null}
+      <BackendNotice />
       <AuthForm action={signInAction} submitLabel="Sign in" hiddenFields={next ? { next } : undefined}>
         <div className="form-group">
           <label className="form-label" htmlFor="email">Email</label>
@@ -37,9 +32,6 @@ export default async function LoginPage({ searchParams }: Props) {
           <label className="form-label" htmlFor="password">Password</label>
           <input id="password" name="password" type="password" className="form-input" autoComplete="current-password" required />
         </div>
-        <p style={{ fontSize: 12.5, marginBottom: 8 }}>
-          <Link href="/forgot-password" style={{ color: "var(--primary)" }}>Forgot password?</Link>
-        </p>
       </AuthForm>
     </AuthShell>
   );

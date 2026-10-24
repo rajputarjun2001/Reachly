@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { AuthShell } from "@/components/auth/auth-shell";
 import { AuthForm } from "@/components/auth/auth-form";
-import { SupabaseNotice } from "@/components/auth/supabase-notice";
+import { BackendNotice } from "@/components/auth/backend-notice";
 import { signUpAction } from "@/app/(auth)/actions";
 
 export default function SignUpPage() {
@@ -18,7 +18,7 @@ export default function SignUpPage() {
         </p>
       }
     >
-      <SupabaseNotice />
+      <BackendNotice />
       <AuthForm action={signUpAction} submitLabel="Create account">
         <div className="form-group">
           <label className="form-label" htmlFor="displayName">Your name</label>

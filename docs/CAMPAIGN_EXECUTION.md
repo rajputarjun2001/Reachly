@@ -1,60 +1,40 @@
-# Campaign execution engine (Task 010)
+# Campaign execution (BullMQ + Playwright)
 
-Reachly stores campaign **configuration** in `campaigns` / `campaign_steps` and runs a **durable execution layer** in:
+Reachly runs outreach in-process with **BullMQ** queues backed by **Redis**. Campaign configuration lives in MongoDB (`Campaign`, `Lead`). Workers in `server/services/scheduler/` perform real LinkedIn actions via **Playwright** (not console-only stubs).
 
-- `campaign_enrollments` — per-lead progress in a campaign
-- `campaign_execution_jobs` — scheduled work units (one row per enrollment × step)
-- `campaign_execution_attempts` — append-only execution history
+## Queues
 
-Migration: `supabase/migrations/20260222170000_campaign_execution.sql`
+| Queue | Worker | Purpose |
+|-------|--------|---------|
+| `reachly:connection` | `connectionProcessor` | Send connection requests |
+| `reachly:message` | `messageProcessor` | Send follow-up DMs |
+| `reachly:inbox-poll` | `inboxProcessor` | Scrape messaging inbox every **2 hours** per active account |
+| `reachly:maintenance` | `maintenanceProcessor` | Hourly daily schedule + 30‑min account health checks |
 
-## LinkedIn / external delivery
+Job names and payloads: `server/services/scheduler/jobTypes.ts`.
 
-**No live LinkedIn actions** are performed in this release. The default server executor (`disabledCampaignExecutor`) returns `unsupported` for every job. Jobs transition to **`blocked`** — they are **not** recorded as successful sends.
+## Lifecycle
 
-Enable a real provider only when `CAMPAIGN_EXECUTOR_ENABLED=true` and a vetted executor implementation exists.
+1. **Launch** (`domain/campaigns.launchCampaign`) sets status `active`, then `scheduleDailyConnections` enqueues connection jobs with random delays inside the sending window.
+2. **Hourly cron** (`maintenance` → `daily-schedule` → `startAllActiveCampaigns`) re-runs scheduling idempotently per local calendar day (`lastScheduledFor`).
+3. **Connection worker** reserves a daily slot, calls `linkedinActions.sendConnectionRequest`, updates lead status and `AutomationEvent` logs.
+4. **Inbox poll** matches threads to leads, stores messages in `Conversation`, marks `replied`, and runs `checkAcceptances` for pending invitations.
+5. **Message worker** sends configured steps after `connected` / prior message statuses.
 
-Optional test mock: `CAMPAIGN_EXECUTOR_MOCK=true` (never use in production).
+Pause/cancel stops new work: processors skip when `campaign.status !== "active"`.
 
-## Campaign statuses
+## Requirements
 
-Extended set: `draft`, `active`, `paused`, `archived`, `completed`, `cancelled`, `failed`.
+- `MONGO_URI`, `JWT_SECRET`, `ENCRYPTION_KEY` — app and API
+- `REDIS_HOST` / `REDIS_PORT` — required when `WORKERS_ENABLED=true` (default)
+- `npm run browsers:install` — Chromium for Playwright on the host (or `DOCKER_ENABLED=true` for per-account browser containers)
 
-A campaign moves to **`completed`** only when there are **no pending or running jobs** and no **active** enrollments (see `tryFinalizeCampaign`).
+There is **no** `CAMPAIGN_EXECUTOR_MOCK` or console-only executor in this codebase. Tests mock Playwright and queues with Vitest.
 
-## Worker / cron integration
+## Operations
 
-Due jobs are claimed atomically via RPC:
+- On startup, `server.ts` starts workers and runs `startAllActiveCampaigns()` once.
+- `/api/health` reports Mongo and Redis when the backend is configured.
+- In **production**, if workers are enabled and fail to start (usually Redis down), the process exits.
 
-```sql
-select * from public.claim_due_campaign_jobs('worker-name', 25);
-```
-
-- Uses `FOR UPDATE SKIP LOCKED` to avoid double-claim under concurrent workers.
-- Requires an authenticated Supabase session with workspace membership (RLS).
-- Production workers should run with a service role **only** if you add a separate hardened RPC; document ops before doing so.
-
-Suggested cron flow:
-
-1. `claim_due_campaign_jobs`
-2. For each row, call application `executeCampaignJob(jobId)` (records attempt, applies retry policy)
-3. `tryFinalizeCampaign` for affected campaigns
-
-Server action `processDueCampaignJobsAction` wraps claim + execute for manual/ops use.
-
-## Retry policy
-
-- Default `max_attempts`: 3
-- Backoff: 1 min, 5 min, 15 min (`RETRY_BACKOFF_MS`)
-- Retryable failures return job to `pending` with `next_retry_at`
-- Permanent failures or exhausted retries → job `failed`, enrollment `failed`
-
-## Manual setup
-
-Apply migration locally or on your Supabase project:
-
-```bash
-supabase db push
-```
-
-RLS integration tests (`supabase db test`) were **not** executed unless you run them against a live local database.
+See `docs/PRODUCTION.md` for the full deployment checklist.

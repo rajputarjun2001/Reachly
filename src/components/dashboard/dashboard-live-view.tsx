@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useModals } from "@/context/modal-context";
-import { LeadsTrendChart } from "@/components/charts/insights-charts";
+import { LeadsTrendChart, OutreachTrendChart } from "@/components/charts/insights-charts";
 import { appRoutes } from "@/lib/routes";
 import type { DashboardInsights } from "@/lib/insights/types";
 import type { CampaignStatus } from "@/lib/campaigns/types";
@@ -11,7 +11,9 @@ function statusBadge(status: CampaignStatus) {
   if (status === "paused") return { className: "badge badge-amber", label: "⏸ Paused" };
   if (status === "draft") return { className: "badge badge-gray", label: "Draft" };
   if (status === "archived") return { className: "badge badge-gray", label: "Archived" };
-  return { className: "badge badge-green", label: "● Active (config)" };
+  if (status === "completed") return { className: "badge badge-green", label: "Completed" };
+  if (status === "cancelled" || status === "failed") return { className: "badge badge-gray", label: status === "failed" ? "Failed" : "Cancelled" };
+  return { className: "badge badge-green", label: "● Running" };
 }
 
 type DashboardLiveViewProps = {
@@ -22,13 +24,13 @@ type DashboardLiveViewProps = {
 
 export function DashboardLiveView({ data, greetingName, loadError }: DashboardLiveViewProps) {
   const { openModal } = useModals();
-  const activeCount = data.campaign_by_status.active;
+  const { outreach } = data;
   const isEmpty =
     data.total_leads === 0 && data.campaign_count === 0 && data.lead_list_count === 0;
 
   const statusFunnel = [
     { label: "Draft", value: data.campaign_by_status.draft, color: "var(--fg3)" },
-    { label: "Active (config)", value: data.campaign_by_status.active, color: "var(--primary)" },
+    { label: "Running", value: data.campaign_by_status.active, color: "var(--primary)" },
     { label: "Paused", value: data.campaign_by_status.paused, color: "var(--amber)" },
     { label: "Archived", value: data.campaign_by_status.archived, color: "var(--green)" },
   ];
@@ -51,7 +53,7 @@ export function DashboardLiveView({ data, greetingName, loadError }: DashboardLi
             <div className="empty-icon">📊</div>
             <div className="empty-title">No workspace activity yet</div>
             <div className="empty-sub" style={{ maxWidth: 480, margin: "0 auto 20px" }}>
-              Import leads and create a campaign draft to see real metrics here. Outreach performance tracking is not available until sending ships.
+              Connect a LinkedIn account, import leads and start a campaign to see outreach metrics here.
             </div>
             <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
               <Link href={appRoutes.leads} className="btn btn-outline">Upload leads</Link>
@@ -84,42 +86,50 @@ export function DashboardLiveView({ data, greetingName, loadError }: DashboardLi
         </button>
       </div>
       <div className="content">
-        <div className="safety-banner">
-          <div className="safety-banner-icon">ℹ️</div>
-          <div className="safety-banner-text">
-            <strong>Outreach metrics not available yet.</strong> Sent, accepted, replies, and meetings are not tracked until message sending is implemented. Summary cards below use your saved leads and campaigns only.
+        {outreach.active_accounts === 0 ? (
+          <div className="safety-banner">
+            <div className="safety-banner-icon">🔗</div>
+            <div className="safety-banner-text">
+              <strong>No LinkedIn account connected.</strong>{" "}
+              <Link href={appRoutes.accounts} style={{ color: "var(--primary)" }}>Connect one</Link> to start sending campaigns.
+            </div>
           </div>
-        </div>
+        ) : null}
 
         <div className="stats-grid">
           <div className="stat-card">
-            <div className="stat-icon" style={{ background: "#EEF2FF" }}>👥</div>
+            <div className="stat-icon" style={{ background: "#EEF2FF" }}>📤</div>
+            <div className="stat-val">{outreach.connections_sent}</div>
+            <div className="stat-label">Requests sent (30d)</div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-icon" style={{ background: "#ECFDF5" }}>🤝</div>
+            <div className="stat-val">{outreach.acceptance_rate}%</div>
+            <div className="stat-label">Acceptance rate ({outreach.connections_accepted})</div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-icon" style={{ background: "#FEF3C7" }}>💬</div>
+            <div className="stat-val">{outreach.replied}</div>
+            <div className="stat-label">Replies ({outreach.reply_rate}%)</div>
+          </div>
+          <div className="stat-card">
+            <div className="stat-icon" style={{ background: "#F0FDF4" }}>👥</div>
             <div className="stat-val">{data.total_leads}</div>
-            <div className="stat-label">Total Leads</div>
-          </div>
-          <div className="stat-card">
-            <div className="stat-icon" style={{ background: "#ECFDF5" }}>📋</div>
-            <div className="stat-val">{data.lead_list_count}</div>
-            <div className="stat-label">Lead Lists</div>
-          </div>
-          <div className="stat-card">
-            <div className="stat-icon" style={{ background: "#FEF3C7" }}>📣</div>
-            <div className="stat-val">{data.campaign_count}</div>
-            <div className="stat-label">Campaigns</div>
-          </div>
-          <div className="stat-card">
-            <div className="stat-icon" style={{ background: "#F0FDF4" }}>●</div>
-            <div className="stat-val">{activeCount}</div>
-            <div className="stat-label">Active (configuration)</div>
+            <div className="stat-label">Leads · {outreach.active_campaigns} running campaign{outreach.active_campaigns === 1 ? "" : "s"}</div>
           </div>
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 20, marginBottom: 20 }}>
           <div className="card">
             <div className="card-header">
-              <div className="card-title">Leads added (7 days)</div>
+              <div className="card-title">Outreach (7 days)</div>
             </div>
             <div className="card-body">
+              <OutreachTrendChart
+                series={data.outreach_last_7_days}
+                emptyLabel="No outreach in the last 7 days."
+              />
+              <div className="card-title" style={{ fontSize: 13, margin: "16px 0 8px" }}>Leads added</div>
               <LeadsTrendChart series={data.leads_added_last_7_days} />
             </div>
           </div>
@@ -189,7 +199,9 @@ export function DashboardLiveView({ data, greetingName, loadError }: DashboardLi
                         <td><span className={badge.className}>{badge.label}</span></td>
                         <td>{c.lead_count}</td>
                         <td>{c.step_count} steps</td>
-                        <td className="text-xs color-muted">Not tracked yet</td>
+                        <td className="text-xs">
+                          {c.stats.connections_sent} sent · {c.stats.connections_accepted} accepted · {c.stats.replied} replied
+                        </td>
                       </tr>
                     );
                   })

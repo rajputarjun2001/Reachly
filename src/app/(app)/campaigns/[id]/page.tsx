@@ -1,14 +1,15 @@
 import { notFound } from "next/navigation";
 import { CampaignDetailScreen } from "@/components/screens/campaign-detail-screen";
 import { CampaignDetailLive } from "@/components/campaigns/campaign-detail-live";
-import { getCampaignById, CampaignDataError } from "@/lib/campaigns/repository";
+import { getCampaignById } from "@/lib/campaigns/repository";
 import { resolveCampaignsPageMode } from "@/lib/campaigns/page-mode";
-import { isSupabaseConfigured } from "@/lib/env";
-import { getWorkspaceContext } from "@/lib/workspace/context";
+import { isBackendConfigured } from "@/lib/env";
+import { getWorkspaceContext, redirectWithoutWorkspace } from "@/lib/workspace/context";
 import { getCampaignById as getDemoCampaign } from "@/data/demo/campaigns";
 import { listLeadsForList } from "@/lib/leads/repository";
-import { getCampaignExecutionStats, CampaignExecutionError } from "@/lib/campaigns/execution/repository";
-import type { CampaignExecutionStats } from "@/lib/campaigns/execution/types";
+import { listAccounts } from "@/lib/accounts/repository";
+import type { AccountOption } from "@/lib/accounts/types";
+import type { LeadStatus } from "@/lib/leads/types";
 
 type Props = { params: Promise<{ id: string }> };
 
@@ -16,7 +17,7 @@ export const dynamic = "force-dynamic";
 
 export default async function CampaignDetailPage({ params }: Props) {
   const { id } = await params;
-  const mode = resolveCampaignsPageMode(isSupabaseConfigured());
+  const mode = resolveCampaignsPageMode(isBackendConfigured());
 
   if (mode === "demo-preview") {
     const campaign = getDemoCampaign(id);
@@ -25,27 +26,18 @@ export default async function CampaignDetailPage({ params }: Props) {
   }
 
   const workspace = await getWorkspaceContext();
-  if (!workspace) notFound();
+  if (!workspace) return redirectWithoutWorkspace(`/campaigns/${id}`);
 
-  let campaign;
-  try {
-    campaign = await getCampaignById(id);
-  } catch (err) {
-    if (err instanceof CampaignDataError && err.code === "SCHEMA_MISSING") {
-      return (
-        <div className="content" style={{ padding: 24 }}>
-          <p role="alert" style={{ color: "#B91C1C" }}>
-            {err.message} Run <code>supabase db push</code> (see docs/SETUP.md).
-          </p>
-        </div>
-      );
-    }
-    notFound();
-  }
-
+  const campaign = await getCampaignById(id);
   if (!campaign) notFound();
 
-  let leadsPreview: { id: string; name: string; company: string | null; job_title: string | null }[] = [];
+  let leadsPreview: {
+    id: string;
+    name: string;
+    company: string | null;
+    job_title: string | null;
+    status: LeadStatus;
+  }[] = [];
   if (campaign.lead_list_id) {
     try {
       const page = await listLeadsForList(campaign.lead_list_id, { page: 1, pageSize: 10 });
@@ -54,26 +46,24 @@ export default async function CampaignDetailPage({ params }: Props) {
         name: [l.first_name, l.last_name].filter(Boolean).join(" ") || l.email || "—",
         company: l.company,
         job_title: l.job_title,
+        status: l.status,
       }));
     } catch {
       leadsPreview = [];
     }
   }
 
-  let executionStats: CampaignExecutionStats | null = null;
+  let accounts: AccountOption[] = [];
   try {
-    executionStats = await getCampaignExecutionStats(id);
-  } catch (err) {
-    if (!(err instanceof CampaignExecutionError && err.code === "SCHEMA_MISSING")) {
-      executionStats = null;
-    }
+    accounts = (await listAccounts()).map((a) => ({
+      id: a.id,
+      label: a.display_name,
+      status: a.status,
+      daily_limit: a.daily_limit,
+    }));
+  } catch {
+    accounts = [];
   }
 
-  return (
-    <CampaignDetailLive
-      campaign={campaign}
-      leadsPreview={leadsPreview}
-      executionStats={executionStats}
-    />
-  );
+  return <CampaignDetailLive campaign={campaign} leadsPreview={leadsPreview} accounts={accounts} />;
 }

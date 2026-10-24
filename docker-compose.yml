@@ -1,0 +1,30 @@
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    networks:
+      - reachly-net
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # BullMQ requires keys never to be evicted.
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - reachly-net
+
+volumes:
+  mongo-data:
+  redis-data:
+
+networks:
+  reachly-net:
+    name: reachly-net

@@ -1,7 +1,14 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  serverExternalPackages: [
+    "mongoose",
+    "ioredis",
+    "bullmq",
+    "playwright",
+    "dockerode",
+    "bcryptjs",
+  ],
 };
 
 export default nextConfig;

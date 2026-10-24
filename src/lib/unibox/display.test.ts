@@ -23,6 +23,11 @@ describe("unibox display", () => {
       lead_last_name: "Doe",
       lead_company: null,
       lead_job_title: null,
+      lead_linkedin_url: null,
+      campaign_name: null,
+      account_label: null,
+      has_unread: false,
+      can_reply: false,
     };
     expect(conversationDisplayName(c)).toBe("Jane Doe");
   });

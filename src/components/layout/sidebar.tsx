@@ -34,7 +34,7 @@ type SidebarProps = {
   workspacePlan: string;
   workspaceInitials: string;
   showSignOut?: boolean;
-  supabaseConfigured?: boolean;
+  liveMode?: boolean;
 };
 
 function isActive(pathname: string, href: string) {
@@ -50,7 +50,7 @@ export function Sidebar({
   workspacePlan,
   workspaceInitials,
   showSignOut,
-  supabaseConfigured,
+  liveMode,
 }: SidebarProps) {
   const pathname = usePathname();
   const { emptyMode, toggleEmptyMode } = usePreviewMode();
@@ -82,7 +82,7 @@ export function Sidebar({
             >
               <Icon size={16} strokeWidth={2} aria-hidden />
               {item.label}
-              {"demoBadge" in item && item.demoBadge && !supabaseConfigured ? (
+              {"demoBadge" in item && item.demoBadge && !liveMode ? (
                 <span className="nav-badge">{item.demoBadge}</span>
               ) : null}
             </Link>

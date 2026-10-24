@@ -1,16 +1,17 @@
 import { NextResponse } from "next/server";
-import { WORKSPACE_READY_COOKIE } from "@/lib/auth/workspace-cookie";
-import { createClientIfConfigured } from "@/lib/supabase/server";
-import { isSupabaseConfigured } from "@/lib/env";
+import { SESSION_COOKIE } from "@server/auth/token";
+
+function signOut(request: Request) {
+  const response = NextResponse.redirect(new URL("/login", request.url), { status: 303 });
+  response.cookies.delete(SESSION_COOKIE);
+  return response;
+}
 
 export async function POST(request: Request) {
-  if (isSupabaseConfigured()) {
-    const supabase = await createClientIfConfigured();
-    if (supabase) {
-      await supabase.auth.signOut();
-    }
-  }
-  const response = NextResponse.redirect(new URL("/login", request.url), { status: 303 });
-  response.cookies.delete(WORKSPACE_READY_COOKIE);
-  return response;
+  return signOut(request);
+}
+
+/** Used by server components to clear a session whose user or workspace no longer exists. */
+export async function GET(request: Request) {
+  return signOut(request);
 }

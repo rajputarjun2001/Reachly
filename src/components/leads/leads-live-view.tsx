@@ -71,7 +71,7 @@ export function LeadsLiveView({ initialLists, loadError }: LeadsLiveViewProps) {
   };
 
   const handleDelete = (list: LeadListSummary) => {
-    if (!window.confirm(`Delete "${list.name}"? This removes the list; leads are kept in the workspace.`)) return;
+    if (!window.confirm(`Delete "${list.name}"? This permanently deletes the list and all of its leads.`)) return;
     startTransition(async () => {
       const result = await deleteLeadListAction(list.id);
       if (!result.error) {

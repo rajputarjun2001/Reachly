@@ -2,13 +2,14 @@
 
 import { useModals } from "@/context/modal-context";
 import { CampaignWizardModal } from "@/components/campaigns/campaign-wizard-modal";
+import { ConnectAccountModal } from "@/components/accounts/connect-account-modal";
 import { ModalShell } from "./modal-shell";
 
 type AppModalsProps = {
-  supabaseConfigured?: boolean;
+  liveMode?: boolean;
 };
 
-export function AppModals({ supabaseConfigured = false }: AppModalsProps) {
+export function AppModals({ liveMode = false }: AppModalsProps) {
   const { isOpen, closeModal } = useModals();
 
   return (
@@ -16,9 +17,12 @@ export function AppModals({ supabaseConfigured = false }: AppModalsProps) {
       <CampaignWizardModal
         open={isOpen("newCampaign")}
         onClose={() => closeModal("newCampaign")}
-        liveMode={supabaseConfigured}
+        liveMode={liveMode}
       />
 
+      {liveMode ? (
+        <ConnectAccountModal open={isOpen("addAccount")} onClose={() => closeModal("addAccount")} />
+      ) : (
       <ModalShell
         open={isOpen("addAccount")}
         onClose={() => closeModal("addAccount")}
@@ -45,9 +49,8 @@ export function AppModals({ supabaseConfigured = false }: AppModalsProps) {
             color: "#1E40AF",
           }}
         >
-          <strong>Demo UI only.</strong> Reachly will use authorized LinkedIn connection methods
-          (e.g. official APIs or user-guided browser sessions). We do not collect or store LinkedIn
-          passwords in this application.
+          <strong>Demo preview.</strong> Configure the backend (see docs/SETUP.md) and sign in to connect a
+          real LinkedIn account.
         </div>
         <div className="form-group">
           <label className="form-label" htmlFor="li-label">Account label</label>
@@ -63,6 +66,7 @@ export function AppModals({ supabaseConfigured = false }: AppModalsProps) {
           <div className="form-hint">We recommend conservative daily limits aligned with platform policies.</div>
         </div>
       </ModalShell>
+      )}
 
       <ModalShell
         open={isOpen("uploadLeads")}
@@ -80,7 +84,7 @@ export function AppModals({ supabaseConfigured = false }: AppModalsProps) {
         }
       >
         <p className="form-hint" style={{ marginBottom: 12 }}>
-          Demo UI only — not saved. Sign in with Supabase configured to import real lead lists on the Leads page.
+          Demo UI only — not saved. Configure the backend and sign in to import real lead lists on the Leads page.
         </p>
         <div className="form-group">
           <label className="form-label" htmlFor="list-name">List Name</label>

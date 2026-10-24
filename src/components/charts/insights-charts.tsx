@@ -11,7 +11,7 @@ import {
 import { Bar } from "react-chartjs-2";
 import { barChartDefaults } from "./chart-config";
 import { formatDayLabel } from "@/lib/insights/aggregations";
-import type { DayCount } from "@/lib/insights/types";
+import type { DayCount, OutreachDay } from "@/lib/insights/types";
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip, Legend);
 
@@ -42,6 +42,33 @@ export function LeadsTrendChart({ series, emptyLabel }: { series: DayCount[]; em
           ],
         }}
         options={{ ...barChartDefaults, plugins: { legend: { display: false } } }}
+      />
+    </div>
+  );
+}
+
+export function OutreachTrendChart({ series, emptyLabel }: { series: OutreachDay[]; emptyLabel?: string }) {
+  const total = series.reduce((s, d) => s + d.sent + d.accepted + d.replied, 0);
+  if (total === 0) {
+    return (
+      <p className="color-muted text-sm" style={{ padding: "48px 0", textAlign: "center" }}>
+        {emptyLabel ?? "No outreach activity in this period."}
+      </p>
+    );
+  }
+  const labels = series.map((d) => (series.length > 7 ? d.date.slice(5) : formatDayLabel(d.date)));
+  return (
+    <div style={{ height: 200 }}>
+      <Bar
+        data={{
+          labels,
+          datasets: [
+            { label: "Requests sent", data: series.map((d) => d.sent), backgroundColor: "rgba(99,102,241,.35)", borderRadius: 4 },
+            { label: "Accepted", data: series.map((d) => d.accepted), backgroundColor: "#10B981", borderRadius: 4 },
+            { label: "Replies", data: series.map((d) => d.replied), backgroundColor: "#F59E0B", borderRadius: 4 },
+          ],
+        }}
+        options={{ ...barChartDefaults, plugins: { legend: { display: true, position: "bottom" } } }}
       />
     </div>
   );

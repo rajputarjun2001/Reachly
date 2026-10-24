@@ -2,7 +2,9 @@ import type { CampaignStepType } from "./types";
 
 export const CAMPAIGN_NAME_MAX = 120;
 export const CAMPAIGNS_PAGE_SIZE = 50;
-export const MAX_CAMPAIGN_STEPS = 10;
+/** One connection request plus up to three follow-up messages. */
+export const MAX_CAMPAIGN_STEPS = 4;
+export const CONNECTION_NOTE_MAX = 280;
 
 export const SUPPORTED_STEP_TYPES: CampaignStepType[] = ["connection_request", "message"];
 

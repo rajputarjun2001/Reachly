@@ -1,5 +1,18 @@
 import type { CampaignStatus } from "@/lib/campaigns/types";
-import type { CampaignStatusCounts, DayCount } from "./types";
+import type { CampaignStatusCounts, DayCount, OutreachSummary } from "./types";
+
+export function emptyOutreachSummary(): OutreachSummary {
+  return {
+    connections_sent: 0,
+    connections_accepted: 0,
+    acceptance_rate: 0,
+    replied: 0,
+    reply_rate: 0,
+    messages_sent: 0,
+    active_campaigns: 0,
+    active_accounts: 0,
+  };
+}
 
 export function emptyStatusCounts(): CampaignStatusCounts {
   return {

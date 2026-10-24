@@ -1,16 +1,19 @@
 import "server-only";
 
-import { createClient } from "@/lib/supabase/server";
-import { requireWorkspaceContext } from "@/lib/workspace/context";
-import { CONVERSATIONS_PAGE_SIZE, MESSAGES_PAGE_SIZE } from "./constants";
+import * as uniboxDomain from "@server/domain/unibox";
+import type { ConversationDoc, InternalNoteDoc } from "@server/models";
+import { badRequest } from "@server/utils/errors";
+import { ensureDb } from "@/lib/server/backend";
+import { requireAuthContext } from "@/lib/workspace/context";
+import { CONVERSATIONS_PAGE_SIZE } from "./constants";
 import type {
   ConversationSummary,
   ConversationWithMessages,
   InternalNoteRow,
+  MessageDirection,
   MessageRow,
   PaginatedConversations,
 } from "./types";
-import { classifyUniboxDbError } from "./db-errors";
 import {
   validateConversationStatus,
   validateConversationTitle,
@@ -18,57 +21,81 @@ import {
   validateInternalNoteKind,
   validateInternalNoteParents,
   validateMessageBody,
-  validateMessageDirection,
 } from "./validation";
 
-export class UniboxDataError extends Error {
-  constructor(
-    message: string,
-    public code: string = "UNIBOX_ERROR",
-  ) {
-    super(message);
-  }
+type PopulatedLead = { _id: unknown; firstName?: string; lastName?: string; company?: string; title?: string; linkedinUrl?: string };
+type PopulatedCampaign = { _id: unknown; name?: string };
+type PopulatedAccount = { _id: unknown; fullName?: string; linkedinEmail?: string; label?: string };
+
+function populated<T>(value: unknown): T | null {
+  return value && typeof value === "object" && "_id" in value ? (value as T) : null;
 }
 
-function mapSchemaError(error: { code?: string; message?: string }) {
-  const kind = classifyUniboxDbError(error);
-  if (kind === "SCHEMA_MISSING") {
-    throw new UniboxDataError(
-      "Unibox tables are missing in this Supabase project.",
-      "SCHEMA_MISSING",
-    );
-  }
-  if (kind === "RELATIONSHIP_MISMATCH") {
-    throw new UniboxDataError("Note does not match this conversation or workspace.", "VALIDATION");
-  }
+function iso(value: unknown): string {
+  return value instanceof Date ? value.toISOString() : new Date().toISOString();
 }
 
-async function getScopedClient() {
-  const ctx = await requireWorkspaceContext();
-  const supabase = await createClient();
-  return { supabase, ctx };
-}
+const DIRECTION_TO_UI: Record<string, MessageDirection> = {
+  sent: "outbound",
+  received: "inbound",
+  system: "system",
+};
 
-function mapConversationRow(row: Record<string, unknown>): ConversationSummary {
-  const lead = row.leads as
-    | { first_name: string | null; last_name: string | null; company: string | null; job_title: string | null }
-    | null
-    | undefined;
+function mapConversation(doc: ConversationDoc): ConversationSummary {
+  const lead = populated<PopulatedLead>(doc.leadId);
+  const campaign = populated<PopulatedCampaign>(doc.campaignId);
+  const account = populated<PopulatedAccount>(doc.linkedinAccountId);
   return {
-    id: row.id as string,
-    workspace_id: row.workspace_id as string,
-    lead_id: row.lead_id as string | null,
-    title: row.title as string,
-    status: row.status as ConversationSummary["status"],
-    last_message_at: row.last_message_at as string | null,
-    last_message_preview: row.last_message_preview as string | null,
-    created_at: row.created_at as string,
-    updated_at: row.updated_at as string,
-    lead_first_name: lead?.first_name ?? null,
-    lead_last_name: lead?.last_name ?? null,
+    id: String(doc._id),
+    workspace_id: String(doc.workspaceId),
+    lead_id: lead ? String(lead._id) : doc.leadId ? String(doc.leadId) : null,
+    title: doc.title || doc.participantName || "Conversation",
+    status: (doc.status ?? "open") as ConversationSummary["status"],
+    last_message_at: doc.lastMessageAt ? iso(doc.lastMessageAt) : null,
+    last_message_preview: doc.lastMessagePreview ?? null,
+    created_at: iso(doc.get("createdAt")),
+    updated_at: iso(doc.get("updatedAt")),
+    has_unread: Boolean(doc.hasUnread),
+    lead_first_name: lead?.firstName ?? null,
+    lead_last_name: lead?.lastName ?? null,
     lead_company: lead?.company ?? null,
-    lead_job_title: lead?.job_title ?? null,
+    lead_job_title: lead?.title ?? null,
+    lead_linkedin_url: lead?.linkedinUrl ?? null,
+    campaign_name: campaign?.name ?? null,
+    account_label: account ? account.label || account.fullName || account.linkedinEmail || null : null,
+    can_reply: Boolean(lead && doc.linkedinAccountId),
   };
+}
+
+function mapMessages(doc: ConversationDoc): MessageRow[] {
+  return (doc.messages ?? []).map((m) => ({
+    id: String(m._id),
+    conversation_id: String(doc._id),
+    workspace_id: String(doc.workspaceId),
+    direction: DIRECTION_TO_UI[m.direction] ?? "system",
+    body: m.body ?? "",
+    sent_at: iso(m.sentAt),
+    created_at: iso(m.sentAt),
+  }));
+}
+
+function mapNote(note: InternalNoteDoc): InternalNoteRow {
+  return {
+    id: String(note._id),
+    workspace_id: String(note.workspaceId),
+    conversation_id: note.conversationId ? String(note.conversationId) : null,
+    lead_id: note.leadId ? String(note.leadId) : null,
+    kind: note.kind as InternalNoteRow["kind"],
+    body: note.body,
+    created_at: iso(note.get("createdAt")),
+    updated_at: iso(note.get("updatedAt")),
+  };
+}
+
+async function scoped() {
+  const ctx = await requireAuthContext();
+  await ensureDb();
+  return ctx;
 }
 
 export async function listConversations(options?: {
@@ -76,158 +103,60 @@ export async function listConversations(options?: {
   pageSize?: number;
   search?: string;
   status?: "open" | "archived" | "all";
+  filter?: "all" | "unread" | "replied";
 }): Promise<PaginatedConversations> {
-  const { supabase, ctx } = await getScopedClient();
-  const page = Math.max(1, options?.page ?? 1);
+  const ctx = await scoped();
   const pageSize = Math.min(50, options?.pageSize ?? CONVERSATIONS_PAGE_SIZE);
-  const from = (page - 1) * pageSize;
-  const to = from + pageSize - 1;
-
-  let query = supabase
-    .from("conversations")
-    .select(
-      `
-      id, workspace_id, lead_id, title, status,
-      last_message_at, last_message_preview, created_at, updated_at,
-      leads ( first_name, last_name, company, job_title )
-    `,
-      { count: "exact" },
-    )
-    .eq("workspace_id", ctx.workspaceId)
-    .order("last_message_at", { ascending: false, nullsFirst: false })
-    .order("created_at", { ascending: false })
-    .range(from, to);
-
-  const status = options?.status ?? "open";
-  if (status !== "all") query = query.eq("status", status);
-
-  const search = options?.search?.trim();
-  if (search) {
-    const escaped = search.replace(/[%_,]/g, "");
-    query = query.or(`title.ilike.%${escaped}%,last_message_preview.ilike.%${escaped}%`);
-  }
-
-  const { data, error, count } = await query;
-  if (error) {
-    mapSchemaError(error);
-    throw new UniboxDataError("Failed to load conversations", "LIST_FAILED");
-  }
-
+  const result = await uniboxDomain.listConversations(ctx, {
+    page: options?.page,
+    limit: pageSize,
+    search: options?.search,
+    status: options?.status ?? "open",
+    filter: options?.filter ?? "all",
+  });
   return {
-    conversations: (data ?? []).map((row) => mapConversationRow(row as Record<string, unknown>)),
-    total: count ?? 0,
-    page,
+    conversations: result.conversations.map((c) => mapConversation(c as ConversationDoc)),
+    total: result.total,
+    page: result.page,
     pageSize,
   };
 }
 
-export async function getConversationWithMessages(
-  conversationId: string,
-  options?: { messagePage?: number; messagePageSize?: number },
-): Promise<ConversationWithMessages | null> {
-  const { supabase, ctx } = await getScopedClient();
-
-  const { data: conv, error } = await supabase
-    .from("conversations")
-    .select(
-      `
-      id, workspace_id, lead_id, title, status,
-      last_message_at, last_message_preview, created_at, updated_at,
-      leads ( first_name, last_name, company, job_title )
-    `,
-    )
-    .eq("id", conversationId)
-    .eq("workspace_id", ctx.workspaceId)
-    .maybeSingle();
-
-  if (error) {
-    mapSchemaError(error);
-    throw new UniboxDataError("Failed to load conversation", "LOAD_FAILED");
+export async function getConversationWithMessages(conversationId: string): Promise<ConversationWithMessages | null> {
+  const ctx = await scoped();
+  let doc: ConversationDoc;
+  try {
+    doc = await uniboxDomain.conversationDetail(ctx, conversationId);
+  } catch (err) {
+    const status = (err as { status?: number }).status;
+    if (status === 404 || status === 400) return null;
+    throw err;
   }
-  if (!conv) return null;
-
-  const messagePage = Math.max(1, options?.messagePage ?? 1);
-  const messagePageSize = Math.min(100, options?.messagePageSize ?? MESSAGES_PAGE_SIZE);
-  const msgFrom = (messagePage - 1) * messagePageSize;
-  const msgTo = msgFrom + messagePageSize - 1;
-
-  const { data: messages, error: msgError } = await supabase
-    .from("messages")
-    .select("id, conversation_id, workspace_id, direction, body, sent_at, created_at")
-    .eq("conversation_id", conversationId)
-    .eq("workspace_id", ctx.workspaceId)
-    .order("sent_at", { ascending: true })
-    .range(msgFrom, msgTo);
-
-  if (msgError) {
-    mapSchemaError(msgError);
-    throw new UniboxDataError("Failed to load messages", "LOAD_FAILED");
-  }
-
-  const internalNotes = await listInternalNotesForConversation(conversationId, supabase, ctx.workspaceId);
-
+  const notes = await uniboxDomain.listNotes(ctx, { conversationId });
   return {
-    ...mapConversationRow(conv as Record<string, unknown>),
-    messages: (messages ?? []) as MessageRow[],
-    internal_notes: internalNotes,
+    ...mapConversation(doc),
+    messages: mapMessages(doc),
+    internal_notes: notes.map(mapNote).reverse(),
   };
 }
 
-async function listInternalNotesForConversation(
-  conversationId: string,
-  supabase: Awaited<ReturnType<typeof createClient>>,
-  workspaceId: string,
-): Promise<InternalNoteRow[]> {
-  const { data, error } = await supabase
-    .from("unibox_internal_notes")
-    .select("id, workspace_id, conversation_id, lead_id, kind, body, created_at, updated_at")
-    .eq("conversation_id", conversationId)
-    .eq("workspace_id", workspaceId)
-    .order("updated_at", { ascending: true });
+export async function markConversationRead(conversationId: string): Promise<void> {
+  const ctx = await scoped();
+  await uniboxDomain.markRead(ctx, conversationId);
+}
 
-  if (error) {
-    mapSchemaError(error);
-    throw new UniboxDataError("Failed to load internal notes", "LOAD_FAILED");
-  }
-
-  return (data ?? []) as InternalNoteRow[];
+/** Sends a reply through the conversation's LinkedIn account. */
+export async function sendReply(conversationId: string, body: string): Promise<void> {
+  const ctx = await scoped();
+  const message = validateMessageBody(body);
+  if (!message) throw badRequest("Message cannot be empty");
+  await uniboxDomain.reply(ctx, conversationId, message);
 }
 
 export async function listInternalNotesForLead(leadId: string): Promise<InternalNoteRow[]> {
-  const { supabase, ctx } = await getScopedClient();
-  await assertLeadInWorkspace(leadId, ctx.workspaceId, supabase);
-
-  const { data, error } = await supabase
-    .from("unibox_internal_notes")
-    .select("id, workspace_id, conversation_id, lead_id, kind, body, created_at, updated_at")
-    .eq("lead_id", leadId)
-    .eq("workspace_id", ctx.workspaceId)
-    .is("conversation_id", null)
-    .order("updated_at", { ascending: true });
-
-  if (error) {
-    mapSchemaError(error);
-    throw new UniboxDataError("Failed to load lead notes", "LOAD_FAILED");
-  }
-
-  return (data ?? []) as InternalNoteRow[];
-}
-
-async function getInternalNoteById(noteId: string): Promise<InternalNoteRow | null> {
-  const { supabase, ctx } = await getScopedClient();
-  const { data, error } = await supabase
-    .from("unibox_internal_notes")
-    .select("id, workspace_id, conversation_id, lead_id, kind, body, created_at, updated_at")
-    .eq("id", noteId)
-    .eq("workspace_id", ctx.workspaceId)
-    .maybeSingle();
-
-  if (error) {
-    mapSchemaError(error);
-    throw new UniboxDataError("Failed to load note", "LOAD_FAILED");
-  }
-
-  return (data as InternalNoteRow | null) ?? null;
+  const ctx = await scoped();
+  const notes = await uniboxDomain.listNotes(ctx, { leadId });
+  return notes.filter((n) => !n.conversationId).map(mapNote).reverse();
 }
 
 export async function createInternalNote(input: {
@@ -236,192 +165,53 @@ export async function createInternalNote(input: {
   kind: string;
   body: string;
 }): Promise<InternalNoteRow> {
-  const { supabase, ctx } = await getScopedClient();
+  const ctx = await scoped();
   const parents = validateInternalNoteParents(input.conversation_id, input.lead_id);
   const kind = validateInternalNoteKind(input.kind);
   const body = validateInternalNoteBody(input.body);
-  if (!parents || !kind || !body) {
-    throw new UniboxDataError("Invalid internal note", "VALIDATION");
-  }
+  if (!parents || !kind || !body) throw badRequest("Invalid internal note");
 
-  const conversationId = parents.conversationId;
   let leadId = parents.leadId;
-
-  if (conversationId) {
-    const { data: conv, error: convError } = await supabase
-      .from("conversations")
-      .select("id, lead_id")
-      .eq("id", conversationId)
-      .eq("workspace_id", ctx.workspaceId)
-      .maybeSingle();
-    if (convError) {
-      mapSchemaError(convError);
-      throw new UniboxDataError("Failed to load conversation", "LOAD_FAILED");
-    }
-    if (!conv) throw new UniboxDataError("Conversation not found", "NOT_FOUND");
-    if (leadId && conv.lead_id && leadId !== conv.lead_id) {
-      throw new UniboxDataError("Lead does not match this conversation", "VALIDATION");
-    }
-    if (!leadId && conv.lead_id) leadId = conv.lead_id;
-  } else if (leadId) {
-    await assertLeadInWorkspace(leadId, ctx.workspaceId, supabase);
+  if (parents.conversationId && !leadId) {
+    const conversation = await uniboxDomain.findConversation(ctx, parents.conversationId);
+    leadId = conversation.leadId ? String(conversation.leadId) : null;
   }
-
-  const { data, error } = await supabase
-    .from("unibox_internal_notes")
-    .insert({
-      workspace_id: ctx.workspaceId,
-      conversation_id: conversationId,
-      lead_id: leadId,
-      kind,
-      body,
-    })
-    .select("id, workspace_id, conversation_id, lead_id, kind, body, created_at, updated_at")
-    .single();
-
-  if (error) {
-    mapSchemaError(error);
-    throw new UniboxDataError("Failed to save internal note", "CREATE_FAILED");
-  }
-
-  return data as InternalNoteRow;
+  const note = await uniboxDomain.createNote(ctx, {
+    conversationId: parents.conversationId,
+    leadId,
+    kind,
+    body,
+  });
+  return mapNote(note);
 }
 
 export async function updateInternalNote(noteId: string, body: string): Promise<InternalNoteRow> {
-  const { supabase, ctx } = await getScopedClient();
+  const ctx = await scoped();
   const validBody = validateInternalNoteBody(body);
-  if (!validBody) throw new UniboxDataError("Invalid note content", "VALIDATION");
-
-  const existing = await getInternalNoteById(noteId);
-  if (!existing) throw new UniboxDataError("Note not found", "NOT_FOUND");
-
-  const { data, error } = await supabase
-    .from("unibox_internal_notes")
-    .update({ body: validBody })
-    .eq("id", noteId)
-    .eq("workspace_id", ctx.workspaceId)
-    .select("id, workspace_id, conversation_id, lead_id, kind, body, created_at, updated_at")
-    .single();
-
-  if (error || !data) {
-    mapSchemaError(error ?? {});
-    throw new UniboxDataError("Failed to update note", "UPDATE_FAILED");
-  }
-
-  return data as InternalNoteRow;
+  if (!validBody) throw badRequest("Invalid note content");
+  return mapNote(await uniboxDomain.updateNote(ctx, noteId, validBody));
 }
 
 export async function deleteInternalNote(noteId: string): Promise<void> {
-  const { supabase, ctx } = await getScopedClient();
-  const existing = await getInternalNoteById(noteId);
-  if (!existing) throw new UniboxDataError("Note not found", "NOT_FOUND");
-
-  const { error } = await supabase
-    .from("unibox_internal_notes")
-    .delete()
-    .eq("id", noteId)
-    .eq("workspace_id", ctx.workspaceId);
-
-  if (error) {
-    mapSchemaError(error);
-    throw new UniboxDataError("Failed to delete note", "DELETE_FAILED");
-  }
-}
-
-async function assertLeadInWorkspace(leadId: string, workspaceId: string, supabase: Awaited<ReturnType<typeof createClient>>) {
-  const { data } = await supabase
-    .from("leads")
-    .select("id")
-    .eq("id", leadId)
-    .eq("workspace_id", workspaceId)
-    .maybeSingle();
-  if (!data) throw new UniboxDataError("Lead not found in this workspace", "VALIDATION");
+  const ctx = await scoped();
+  await uniboxDomain.deleteNote(ctx, noteId);
 }
 
 export async function createConversation(input: {
   title: string;
   lead_id?: string | null;
 }): Promise<ConversationSummary> {
-  const { supabase, ctx } = await getScopedClient();
-  const title = validateConversationTitle(input.title);
-  if (!title) throw new UniboxDataError("Invalid conversation title", "VALIDATION");
-
-  if (input.lead_id) {
-    await assertLeadInWorkspace(input.lead_id, ctx.workspaceId, supabase);
-  }
-
-  const { data, error } = await supabase
-    .from("conversations")
-    .insert({
-      workspace_id: ctx.workspaceId,
-      title,
-      lead_id: input.lead_id ?? null,
-      status: "open",
-    })
-    .select(
-      `
-      id, workspace_id, lead_id, title, status,
-      last_message_at, last_message_preview, created_at, updated_at,
-      leads ( first_name, last_name, company, job_title )
-    `,
-    )
-    .single();
-
-  if (error) {
-    mapSchemaError(error);
-    throw new UniboxDataError("Failed to create conversation", "CREATE_FAILED");
-  }
-
-  return mapConversationRow(data as Record<string, unknown>);
+  const ctx = await scoped();
+  const title = input.title.trim() ? validateConversationTitle(input.title) : "";
+  if (title === null) throw badRequest("Invalid conversation title");
+  const doc = await uniboxDomain.createConversation(ctx, { title, leadId: input.lead_id ?? null });
+  await doc.populate(uniboxDomain.CONVERSATION_POPULATE);
+  return mapConversation(doc);
 }
 
-export async function addMessage(input: {
-  conversation_id: string;
-  direction: string;
-  body: string;
-  sent_at?: string;
-}): Promise<MessageRow> {
-  const { supabase, ctx } = await getScopedClient();
-  const direction = validateMessageDirection(input.direction);
-  const body = validateMessageBody(input.body);
-  if (!direction || !body) throw new UniboxDataError("Invalid message", "VALIDATION");
-
-  const conv = await getConversationWithMessages(input.conversation_id, { messagePage: 1, messagePageSize: 1 });
-  if (!conv) throw new UniboxDataError("Conversation not found", "NOT_FOUND");
-
-  const { data, error } = await supabase
-    .from("messages")
-    .insert({
-      conversation_id: input.conversation_id,
-      workspace_id: ctx.workspaceId,
-      direction,
-      body,
-      sent_at: input.sent_at ?? new Date().toISOString(),
-    })
-    .select()
-    .single();
-
-  if (error) {
-    mapSchemaError(error);
-    throw new UniboxDataError("Failed to add message", "CREATE_FAILED");
-  }
-
-  return data as MessageRow;
-}
-
-export async function updateConversationStatus(conversationId: string, status: string) {
-  const { supabase, ctx } = await getScopedClient();
+export async function updateConversationStatus(conversationId: string, status: string): Promise<void> {
+  const ctx = await scoped();
   const valid = validateConversationStatus(status);
-  if (!valid) throw new UniboxDataError("Invalid status", "VALIDATION");
-
-  const { data, error } = await supabase
-    .from("conversations")
-    .update({ status: valid })
-    .eq("id", conversationId)
-    .eq("workspace_id", ctx.workspaceId)
-    .select()
-    .single();
-
-  if (error || !data) throw new UniboxDataError("Failed to update conversation", "UPDATE_FAILED");
-  return data;
+  if (!valid) throw badRequest("Invalid status");
+  await uniboxDomain.setConversationStatus(ctx, conversationId, valid);
 }

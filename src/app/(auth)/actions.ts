@@ -1,12 +1,11 @@
 "use server";
 
-import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { WORKSPACE_READY_COOKIE, workspaceReadyCookieOptions } from "@/lib/auth/workspace-cookie";
-import { createClientIfConfigured } from "@/lib/supabase/server";
+import * as authDomain from "@server/domain/auth";
 import { getSafeRedirectPath } from "@/lib/auth/redirect";
-import { signUpErrorMessage } from "@/lib/auth/errors";
-import { isSupabaseConfigured } from "@/lib/env";
+import { getSession, setSessionCookie } from "@/lib/auth/session";
+import { getBackendConfigError } from "@/lib/env";
+import { actionErrorMessage, ensureDb } from "@/lib/server/backend";
 
 const GENERIC_AUTH_ERROR = "Unable to sign in. Check your email and password.";
 
@@ -15,167 +14,89 @@ export type AuthActionState = {
   success?: string;
 };
 
-export async function signInAction(
-  _prev: AuthActionState,
-  formData: FormData,
-): Promise<AuthActionState> {
-  if (!isSupabaseConfigured()) {
-    return { error: "Supabase is not configured. See docs/SETUP.md." };
-  }
+function configError(): AuthActionState | null {
+  const message = getBackendConfigError();
+  return message ? { error: `Backend is not configured. ${message} See docs/SETUP.md.` } : null;
+}
 
-  const email = String(formData.get("email") ?? "").trim().toLowerCase();
+export async function signInAction(_prev: AuthActionState, formData: FormData): Promise<AuthActionState> {
+  const notConfigured = configError();
+  if (notConfigured) return notConfigured;
+
+  const email = String(formData.get("email") ?? "").trim();
   const password = String(formData.get("password") ?? "");
   const next = getSafeRedirectPath(String(formData.get("next") ?? ""));
+  if (!email || !password) return { error: "Email and password are required." };
 
-  if (!email || !password) {
-    return { error: "Email and password are required." };
+  let destination = next;
+  try {
+    await ensureDb();
+    const user = await authDomain.authenticate(email, password);
+    await setSessionCookie(await authDomain.issueToken(user));
+    if (!user.workspaceId) destination = "/workspace/setup";
+  } catch (err) {
+    const message = actionErrorMessage(err, GENERIC_AUTH_ERROR);
+    return { error: message === "Invalid email or password" ? GENERIC_AUTH_ERROR : message };
   }
-
-  const supabase = await createClientIfConfigured();
-  if (!supabase) {
-    return { error: "Supabase is not configured." };
-  }
-
-  const { error } = await supabase.auth.signInWithPassword({ email, password });
-  if (error) {
-    return { error: GENERIC_AUTH_ERROR };
-  }
-
-  redirect(next);
+  redirect(destination);
 }
 
-export async function signUpAction(
-  _prev: AuthActionState,
-  formData: FormData,
-): Promise<AuthActionState> {
-  if (!isSupabaseConfigured()) {
-    return { error: "Supabase is not configured. See docs/SETUP.md." };
-  }
+export async function signUpAction(_prev: AuthActionState, formData: FormData): Promise<AuthActionState> {
+  const notConfigured = configError();
+  if (notConfigured) return notConfigured;
 
-  const email = String(formData.get("email") ?? "").trim().toLowerCase();
+  const email = String(formData.get("email") ?? "").trim();
   const password = String(formData.get("password") ?? "");
-  const displayName = String(formData.get("displayName") ?? "").trim();
+  const fullName = String(formData.get("displayName") ?? "").trim();
+  if (!email || !password) return { error: "Email and password are required." };
+  if (password.length < 8) return { error: "Password must be at least 8 characters." };
 
-  if (!email || !password) {
-    return { error: "Email and password are required." };
+  try {
+    await ensureDb();
+    const user = await authDomain.registerUser({ email, password, fullName });
+    await setSessionCookie(await authDomain.issueToken(user));
+  } catch (err) {
+    return { error: actionErrorMessage(err, "Unable to create account. Please try again.") };
   }
-  if (password.length < 8) {
-    return { error: "Password must be at least 8 characters." };
-  }
-
-  const supabase = await createClientIfConfigured();
-  if (!supabase) {
-    return { error: "Supabase is not configured." };
-  }
-
-  const siteUrl = (process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000").replace(/\/$/, "");
-
-  const { data, error } = await supabase.auth.signUp({
-    email,
-    password,
-    options: {
-      data: displayName ? { display_name: displayName } : undefined,
-      emailRedirectTo: `${siteUrl}/auth/callback`,
-    },
-  });
-
-  if (error) {
-    return { error: signUpErrorMessage(error) };
-  }
-
-  if (data.user?.identities?.length === 0) {
-    return {
-      error:
-        "An account with this email may already exist. Try signing in, or use forgot password if you cannot sign in.",
-    };
-  }
-
-  return {
-    success:
-      "Check your email to confirm your account, then sign in. If confirmation is disabled in Supabase, you can sign in now.",
-  };
+  redirect("/workspace/setup");
 }
 
-export async function forgotPasswordAction(
-  _prev: AuthActionState,
-  formData: FormData,
-): Promise<AuthActionState> {
-  if (!isSupabaseConfigured()) {
-    return { error: "Supabase is not configured." };
-  }
-
-  const email = String(formData.get("email") ?? "").trim().toLowerCase();
-  if (!email) return { error: "Email is required." };
-
-  const supabase = await createClientIfConfigured();
-  if (!supabase) return { error: "Supabase is not configured." };
-
-  const { error } = await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000"}/reset-password`,
-  });
-
-  if (error) {
-    return { error: "If an account exists for this email, you will receive a reset link shortly." };
-  }
-
-  return {
-    success: "If an account exists for this email, you will receive a reset link shortly.",
-  };
-}
-
-export async function resetPasswordAction(
-  _prev: AuthActionState,
-  formData: FormData,
-): Promise<AuthActionState> {
-  if (!isSupabaseConfigured()) {
-    return { error: "Supabase is not configured." };
-  }
-
-  const password = String(formData.get("password") ?? "");
-  if (password.length < 8) {
-    return { error: "Password must be at least 8 characters." };
-  }
-
-  const supabase = await createClientIfConfigured();
-  if (!supabase) return { error: "Supabase is not configured." };
-
-  const { error } = await supabase.auth.updateUser({ password });
-  if (error) {
-    return { error: "Unable to update password. Request a new reset link." };
-  }
-
-  redirect("/login?reset=success");
-}
-
-export async function createWorkspaceAction(
-  _prev: AuthActionState,
-  formData: FormData,
-): Promise<AuthActionState> {
-  if (!isSupabaseConfigured()) {
-    return { error: "Supabase is not configured." };
-  }
+export async function createWorkspaceAction(_prev: AuthActionState, formData: FormData): Promise<AuthActionState> {
+  const notConfigured = configError();
+  if (notConfigured) return notConfigured;
 
   const name = String(formData.get("workspaceName") ?? "").trim();
   if (!name) return { error: "Workspace name is required." };
 
-  const supabase = await createClientIfConfigured();
-  if (!supabase) return { error: "Supabase is not configured." };
+  const session = await getSession();
+  if (!session) redirect("/login");
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
-
-  const { error } = await supabase.rpc("create_initial_workspace", {
-    workspace_name: name,
-  });
-
-  if (error) {
-    return { error: "Unable to create workspace. Please try again." };
+  try {
+    await ensureDb();
+    const { user } = await authDomain.createWorkspaceForUser(session.userId, { name });
+    await setSessionCookie(await authDomain.issueToken(user));
+  } catch (err) {
+    return { error: actionErrorMessage(err, "Unable to create workspace. Please try again.") };
   }
+  redirect("/dashboard");
+}
 
-  const cookieStore = await cookies();
-  cookieStore.set(WORKSPACE_READY_COOKIE, "1", workspaceReadyCookieOptions);
+export async function acceptInviteAction(_prev: AuthActionState, formData: FormData): Promise<AuthActionState> {
+  const notConfigured = configError();
+  if (notConfigured) return notConfigured;
 
+  const token = String(formData.get("token") ?? "");
+  const password = String(formData.get("password") ?? "");
+  const fullName = String(formData.get("displayName") ?? "").trim();
+  if (!token) return { error: "This invite link is incomplete. Ask the workspace owner for a new one." };
+  if (password.length < 8) return { error: "Password must be at least 8 characters." };
+
+  try {
+    await ensureDb();
+    const { user } = await authDomain.acceptInvite({ token, password, fullName });
+    await setSessionCookie(await authDomain.issueToken(user));
+  } catch (err) {
+    return { error: actionErrorMessage(err, "Unable to accept the invite.") };
+  }
   redirect("/dashboard");
 }
