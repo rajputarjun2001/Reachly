@@ -91,3 +91,33 @@ export async function removeAccount(id: string): Promise<void> {
   const { ctx } = await scoped();
   await accountsDomain.removeAccount(ctx, id);
 }
+
+export type BrowserConnectState = {
+  sessionId: string;
+  status: "pending" | "success" | "failed" | "cancelled";
+  error?: string;
+  accountId?: string;
+};
+
+export async function startBrowserConnect(input: {
+  email: string;
+  label?: string;
+  dailyLimit?: number;
+}): Promise<BrowserConnectState> {
+  const { ctx } = await scoped();
+  return accountsDomain.startBrowserConnect(ctx, {
+    linkedinEmail: input.email,
+    label: input.label,
+    dailyLimit: input.dailyLimit,
+  });
+}
+
+export async function pollBrowserConnect(sessionId: string): Promise<BrowserConnectState> {
+  const { ctx } = await scoped();
+  return accountsDomain.browserConnectStatus(ctx, sessionId);
+}
+
+export async function cancelBrowserConnect(sessionId: string): Promise<void> {
+  const { ctx } = await scoped();
+  await accountsDomain.cancelBrowserConnect(ctx, sessionId);
+}

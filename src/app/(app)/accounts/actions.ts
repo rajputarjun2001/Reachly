@@ -3,10 +3,13 @@
 import { revalidatePath } from "next/cache";
 import { isBackendConfigured } from "@/lib/env";
 import {
+  cancelBrowserConnect,
   checkAccount,
   connectAccount,
+  pollBrowserConnect,
   reconnectAccount,
   removeAccount,
+  startBrowserConnect,
   updateAccount,
 } from "@/lib/accounts/repository";
 import type { AccountHealth } from "@/lib/accounts/types";
@@ -73,6 +76,55 @@ export async function updateAccountAction(id: string, formData: FormData): Promi
     });
     revalidatePath("/accounts");
     return { success: "Account updated." };
+  } catch (err) {
+    return { error: actionErrorMessage(err) };
+  }
+}
+
+export type BrowserConnectActionResult = {
+  error?: string;
+  sessionId?: string;
+  status?: string;
+  accountId?: string;
+};
+
+export async function startBrowserConnectAction(formData: FormData): Promise<BrowserConnectActionResult> {
+  if (!isBackendConfigured()) return NOT_CONFIGURED;
+  const email = String(formData.get("email") ?? "").trim();
+  if (!email) return { error: "LinkedIn email is required." };
+  try {
+    const snap = await startBrowserConnect({
+      email,
+      label: String(formData.get("label") ?? "").trim() || undefined,
+      dailyLimit: optionalLimit(formData.get("daily_limit")),
+    });
+    return { sessionId: snap.sessionId, status: snap.status };
+  } catch (err) {
+    return { error: actionErrorMessage(err, "Could not open the LinkedIn browser.") };
+  }
+}
+
+export async function pollBrowserConnectAction(sessionId: string): Promise<BrowserConnectActionResult> {
+  if (!isBackendConfigured()) return NOT_CONFIGURED;
+  try {
+    const snap = await pollBrowserConnect(sessionId);
+    if (snap.status === "success") revalidatePath("/accounts");
+    return {
+      sessionId: snap.sessionId,
+      status: snap.status,
+      accountId: snap.accountId,
+      error: snap.error,
+    };
+  } catch (err) {
+    return { error: actionErrorMessage(err) };
+  }
+}
+
+export async function cancelBrowserConnectAction(sessionId: string): Promise<AccountActionResult> {
+  if (!isBackendConfigured()) return NOT_CONFIGURED;
+  try {
+    await cancelBrowserConnect(sessionId);
+    return { success: "Cancelled." };
   } catch (err) {
     return { error: actionErrorMessage(err) };
   }

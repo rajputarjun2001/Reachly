@@ -60,6 +60,8 @@ npm run services:down
 npm run browsers:install
 ```
 
+On **Accounts → Connect**, choose **Sign in with browser** to open LinkedIn in a local Chromium window (recommended when LinkedIn asks for verification). The server saves encrypted session cookies only—no password. The browser window opens on the machine running Reachly (your PC when using `npm run dev`).
+
 Set `DOCKER_ENABLED=true` only if you also want a dedicated browser container per account. That is optional; the default is a local headless Chromium.
 
 ## 5. Run the app

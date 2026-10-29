@@ -30,6 +30,11 @@ function fakeBrowser({ pages = {}, afterLoginUrl, onClick = {} }: FakeOptions = 
     state.url = p.url || url;
     state.elements = { ...(p.elements || {}) };
     state.body = p.body || "";
+    if (/linkedin\.com\/(login|uas\/login)/.test(url)) {
+      for (const sel of [S.loginEmail, S.loginPassword, S.loginSubmit]) {
+        if (!state.elements[sel]) state.elements[sel] = {};
+      }
+    }
   };
   const locator = (sel: string) => {
     const loc = {
@@ -39,6 +44,7 @@ function fakeBrowser({ pages = {}, afterLoginUrl, onClick = {} }: FakeOptions = 
       click: async () => {
         if (!state.elements[sel]) throw new Error(`No element ${sel}`);
         actions.push(["click", sel]);
+        if (afterLoginUrl && (sel === S.loginSubmit || sel.includes("submit"))) load(afterLoginUrl);
         const effect = onClick[sel];
         if (effect) {
           Object.assign(state.elements, effect.elements || {});
@@ -56,6 +62,7 @@ function fakeBrowser({ pages = {}, afterLoginUrl, onClick = {} }: FakeOptions = 
       waitFor: async () => {
         if (!state.elements[sel]) throw new Error("timeout");
       },
+      isVisible: async () => Boolean(state.elements[sel]),
     };
     return loc;
   };
@@ -100,10 +107,16 @@ describe("browser setup", () => {
   it("launches headless chromium with the spec user agent and viewport and human delays", async () => {
     const { browser, context, page } = fakeBrowser({ pages: { "*": {} } });
     await li.verifyCookies(COOKIE);
-    expect(chromium.launch).toHaveBeenCalledWith({ headless: true });
+    expect(chromium.launch).toHaveBeenCalledWith({
+      headless: true,
+      args: expect.arrayContaining(["--disable-blink-features=AutomationControlled"]),
+    });
     expect(browser.newContext).toHaveBeenCalledWith({
-      userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+      userAgent: li.USER_AGENT,
       viewport: { width: 1280, height: 800 },
+      locale: "en-US",
+      timezoneId: "UTC",
+      extraHTTPHeaders: { "Accept-Language": "en-US,en;q=0.9" },
     });
     expect(context.addCookies).toHaveBeenCalledWith(COOKIE);
     const delay = page.waitForTimeout.mock.calls[0][0];

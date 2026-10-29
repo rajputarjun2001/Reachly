@@ -2,9 +2,34 @@ import { chromium, type Browser, type BrowserContext, type Cookie, type Page } f
 
 export type SessionCookie = Cookie;
 
-export const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36";
+export const USER_AGENT =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 export const VIEWPORT = { width: 1280, height: 800 };
 const NAV_TIMEOUT = 45000;
+const LOGIN_FIELD_TIMEOUT = 30_000;
+
+const LOGIN_USERNAME_SELECTORS = [
+  "#username",
+  "#session_key",
+  'input[name="session_key"]',
+  'input[autocomplete="username"]',
+];
+const LOGIN_PASSWORD_SELECTORS = [
+  "#password",
+  "#session_password",
+  'input[name="session_password"]',
+  'input[autocomplete="current-password"]',
+];
+const LOGIN_SUBMIT_SELECTORS = [
+  'button[type="submit"]',
+  'button[aria-label="Sign in"]',
+  ".login__form_action_container button",
+];
+const COOKIE_ACCEPT_SELECTORS = [
+  'button[data-control-name*="cookie.consent.accept"]',
+  'button[action-type="ACCEPT"]',
+  'button:has-text("Accept")',
+];
 
 export const ERRORS = {
   CHALLENGE_REQUIRED: "CHALLENGE_REQUIRED",
@@ -67,11 +92,29 @@ export const isLoginUrl = (url: string) => /linkedin\.com\/(login|authwall|uas\/
 export const isChallengeUrl = (url: string) =>
   /linkedin\.com\/(checkpoint\/challenge|checkpoint\/(?!lg)|challenge)/i.test(url);
 
-type Session = { browser: Browser; context: BrowserContext; page: Page };
+export type PlaywrightSession = { browser: Browser; context: BrowserContext; page: Page };
+type Session = PlaywrightSession;
+
+export type LaunchOptions = { headless?: boolean };
+
+function launchChromium(wsEndpoint?: string, launch?: LaunchOptions) {
+  if (wsEndpoint) return chromium.connect(wsEndpoint);
+  const headless = launch?.headless ?? process.env.LINKEDIN_HEADLESS !== "false";
+  return chromium.launch({
+    headless,
+    args: ["--disable-blink-features=AutomationControlled", "--no-sandbox", "--disable-dev-shm-usage"],
+  });
+}
 
 async function openBrowser({ wsEndpoint, cookies }: BrowserOptions & { cookies?: SessionCookie[] }): Promise<Session> {
-  const browser = wsEndpoint ? await chromium.connect(wsEndpoint) : await chromium.launch({ headless: true });
-  const context = await browser.newContext({ userAgent: USER_AGENT, viewport: VIEWPORT });
+  const browser = await launchChromium(wsEndpoint);
+  const context = await browser.newContext({
+    userAgent: USER_AGENT,
+    viewport: VIEWPORT,
+    locale: "en-US",
+    timezoneId: "UTC",
+    extraHTTPHeaders: { "Accept-Language": "en-US,en;q=0.9" },
+  });
   if (cookies && cookies.length) await context.addCookies(cookies);
   const page = await context.newPage();
   page.setDefaultTimeout(15000);
@@ -90,8 +133,91 @@ async function withBrowser<T>(
   }
 }
 
-async function goto(page: Page, url: string) {
-  await page.goto(url, { waitUntil: "domcontentloaded", timeout: NAV_TIMEOUT });
+async function goto(page: Page, url: string, waitUntil: "domcontentloaded" | "load" = "domcontentloaded") {
+  await page.goto(url, { waitUntil, timeout: NAV_TIMEOUT });
+}
+
+/** Fills the first matching visible field (LinkedIn A/B tests login markup). */
+async function fillFirstVisible(page: Page, selectors: string[], value: string): Promise<string> {
+  for (const selector of selectors) {
+    const field = page.locator(selector).first();
+    try {
+      await field.waitFor({ state: "visible", timeout: 4000 });
+      await field.fill(value, { timeout: LOGIN_FIELD_TIMEOUT });
+      return selector;
+    } catch {
+      // try next selector
+    }
+  }
+  throw new Error(`LOGIN_FORM_NOT_FOUND at ${page.url()}`);
+}
+
+async function clickFirstVisible(page: Page, selectors: string[]) {
+  for (const selector of selectors) {
+    const button = page.locator(selector).first();
+    try {
+      await button.waitFor({ state: "visible", timeout: 4000 });
+      await button.click({ timeout: LOGIN_FIELD_TIMEOUT });
+      return;
+    } catch {
+      // try next selector
+    }
+  }
+  throw new Error(`LOGIN_SUBMIT_NOT_FOUND at ${page.url()}`);
+}
+
+async function dismissCookieBanner(page: Page) {
+  for (const selector of COOKIE_ACCEPT_SELECTORS) {
+    const button = page.locator(selector).first();
+    try {
+      if (await button.isVisible({ timeout: 1500 })) {
+        await button.click({ timeout: 5000 });
+        await page.waitForTimeout(400);
+        return;
+      }
+    } catch {
+      // try next selector
+    }
+  }
+}
+
+export const isLoggedInUrl = (url: string) => /linkedin\.com\/(feed|jobs|mynetwork|m\/)/i.test(url);
+
+export function hasLinkedInSession(cookies: SessionCookie[], pageUrl: string): boolean {
+  const hasAuth = cookies.some((c) => c.name === "li_at" && Boolean(c.value));
+  if (!hasAuth) return false;
+  if (isLoginUrl(pageUrl) || isChallengeUrl(pageUrl)) return false;
+  return true;
+}
+
+/** Opens a visible Chromium window on the Reachly server for the user to sign in manually. */
+export async function openManualLoginBrowser(opts: BrowserOptions = {}): Promise<Session> {
+  const browser = await launchChromium(opts.wsEndpoint, { headless: false });
+  const context = await browser.newContext({
+    userAgent: USER_AGENT,
+    viewport: VIEWPORT,
+    locale: "en-US",
+    timezoneId: "UTC",
+    extraHTTPHeaders: { "Accept-Language": "en-US,en;q=0.9" },
+  });
+  const page = await context.newPage();
+  page.setDefaultTimeout(LOGIN_FIELD_TIMEOUT);
+  // Feed first: if a session already exists in this browser, LinkedIn lands on the feed instead of the login form.
+  await goto(page, "https://www.linkedin.com/feed/", "load");
+  await page.waitForTimeout(800);
+  if (!hasLinkedInSession(await context.cookies(), page.url()) && isLoginUrl(page.url())) {
+    await dismissCookieBanner(page);
+  }
+  if (!hasLinkedInSession(await context.cookies(), page.url()) && isLoginUrl(page.url())) {
+    await goto(page, "https://www.linkedin.com/login", "load");
+    await dismissCookieBanner(page);
+  }
+  return { browser, context, page };
+}
+
+export async function closeManualLoginBrowser(session: Session | undefined) {
+  if (!session) return;
+  await session.browser.close().catch(() => undefined);
 }
 
 async function exists(page: Page, selector: string) {
@@ -124,22 +250,40 @@ export async function loginToLinkedIn(
   opts: BrowserOptions = {},
 ): Promise<SessionCookie[]> {
   return withBrowser({ wsEndpoint: opts.wsEndpoint }, async ({ context, page }) => {
-    await goto(page, "https://www.linkedin.com/login");
+    const loginUrls = ["https://www.linkedin.com/login", "https://www.linkedin.com/uas/login"];
+    let loaded = false;
+    for (const loginUrl of loginUrls) {
+      try {
+        await goto(page, loginUrl, "load");
+        loaded = true;
+        break;
+      } catch {
+        // try alternate login URL
+      }
+    }
+    if (!loaded) throw new Error("LOGIN_PAGE_LOAD_FAILED");
+
+    await dismissCookieBanner(page);
     await humanDelay(page);
-    await page.fill(SELECTORS.loginEmail, email);
+
+    if (isLoggedInUrl(page.url())) return context.cookies();
+
+    page.setDefaultTimeout(LOGIN_FIELD_TIMEOUT);
+    const emailSelector = await fillFirstVisible(page, LOGIN_USERNAME_SELECTORS, email);
     await page.waitForTimeout(500 + Math.random() * 1000);
-    await page.fill(SELECTORS.loginPassword, password);
+    await fillFirstVisible(page, LOGIN_PASSWORD_SELECTORS, password);
     await humanDelay(page);
     await Promise.all([
       page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: NAV_TIMEOUT }).catch(() => undefined),
-      page.click(SELECTORS.loginSubmit),
+      clickFirstVisible(page, LOGIN_SUBMIT_SELECTORS),
     ]);
     await humanDelay(page);
 
     const url = page.url();
     if (isChallengeUrl(url) || /captcha/i.test(url)) throw new Error(ERRORS.CHALLENGE_REQUIRED);
-    if (!/\/feed/.test(url)) {
+    if (!isLoggedInUrl(url)) {
       if (await exists(page, SELECTORS.loginError)) throw new Error(ERRORS.INVALID_CREDENTIALS);
+      if (await exists(page, emailSelector)) throw new Error(ERRORS.INVALID_CREDENTIALS);
       throw new Error(ERRORS.CHALLENGE_REQUIRED);
     }
     return context.cookies();
