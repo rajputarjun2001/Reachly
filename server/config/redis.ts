@@ -10,7 +10,10 @@ export function getRedis(): Redis {
     const connection = new Redis({
       host: env.redisHost,
       port: env.redisPort,
+      password: env.redisPassword,
+      tls: env.redisTls ? {} : undefined,
       maxRetriesPerRequest: null,
+      connectTimeout: 10_000,
     });
     connection.on("error", (err: Error & { code?: string }) => {
       console.error("[redis]", err.message || err.code || String(err));

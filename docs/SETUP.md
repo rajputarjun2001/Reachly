@@ -25,6 +25,8 @@ cp .env.example .env
 | `NEXT_PUBLIC_SITE_URL` | Public origin of the app |
 | `MONGO_URI` | MongoDB connection string |
 | `REDIS_HOST` / `REDIS_PORT` | BullMQ connection |
+| `REDIS_PASSWORD` | Managed Redis (e.g. Render Key Value internal URL password) |
+| `REDIS_TLS` | `true` only if your provider requires TLS |
 | `JWT_SECRET` | Session signing key, at least 32 characters |
 | `ENCRYPTION_KEY` | 64 hex characters (32 bytes) for LinkedIn password and cookie encryption |
 | `WORKERS_ENABLED` | `true` to run queues in this process |

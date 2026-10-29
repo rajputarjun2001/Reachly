@@ -25,6 +25,13 @@ export const env = {
   get redisPort() {
     return Number(read("REDIS_PORT")) || 6379;
   },
+  get redisPassword() {
+    return read("REDIS_PASSWORD");
+  },
+  /** Set REDIS_TLS=true when the provider requires TLS (e.g. some managed Redis URLs). */
+  get redisTls() {
+    return read("REDIS_TLS") === "true";
+  },
   get jwtSecret() {
     return read("JWT_SECRET");
   },

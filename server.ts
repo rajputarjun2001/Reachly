@@ -34,29 +34,35 @@ async function main() {
   });
 
   let stopWorkers: (() => Promise<void>) | undefined;
-  if (!configError && env.workersEnabled) {
-    try {
-      const workers = await import("./server/services/scheduler/workers");
-      const scheduler = await import("./server/services/scheduler/dailyScheduler");
-      await workers.startWorkers();
-      stopWorkers = workers.stopWorkers;
-      const summary = await scheduler.startAllActiveCampaigns();
-      console.log(
-        `[reachly] Workers started (${summary.campaigns.length} active campaigns, ${summary.inboxPolls} inbox polls)`,
-      );
-    } catch (err) {
-      const message = (err as Error).message;
-      console.error("[reachly] Workers failed to start (is Redis running?):", message);
-      if (env.isProduction && env.workersEnabled) {
-        console.error("[reachly] Refusing to run in production without BullMQ workers. Fix Redis or set WORKERS_ENABLED=false.");
-        process.exit(1);
-      }
-    }
-  }
 
-  server.listen(env.port, () => {
-    console.log(`[reachly] Ready on http://localhost:${env.port} (${dev ? "development" : "production"})`);
+  await new Promise<void>((resolve, reject) => {
+    server.listen(env.port, "0.0.0.0", () => {
+      console.log(`[reachly] Ready on http://localhost:${env.port} (${dev ? "development" : "production"})`);
+      resolve();
+    });
+    server.once("error", reject);
   });
+
+  if (!configError && env.workersEnabled) {
+    void (async () => {
+      try {
+        const workers = await import("./server/services/scheduler/workers");
+        const scheduler = await import("./server/services/scheduler/dailyScheduler");
+        await workers.startWorkers();
+        stopWorkers = workers.stopWorkers;
+        const summary = await scheduler.startAllActiveCampaigns();
+        console.log(
+          `[reachly] Workers started (${summary.campaigns.length} active campaigns, ${summary.inboxPolls} inbox polls)`,
+        );
+      } catch (err) {
+        const message = (err as Error).message;
+        console.error(
+          "[reachly] Workers failed to start (check REDIS_HOST, REDIS_PORT, REDIS_PASSWORD or set WORKERS_ENABLED=false):",
+          message,
+        );
+      }
+    })();
+  }
 
   const shutdown = async (signal: string) => {
     console.log(`[reachly] ${signal} received, shutting down`);
