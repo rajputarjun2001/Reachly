@@ -17,14 +17,23 @@ type ConnectAccountModalProps = {
 
 type Mode = "password" | "browser";
 
+function isLocalHost(): boolean {
+  if (typeof window === "undefined") return false;
+  const h = window.location.hostname;
+  return h === "localhost" || h === "127.0.0.1";
+}
+
 export function ConnectAccountModal({ open, onClose }: ConnectAccountModalProps) {
   const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);
+  const browserConnectAvailable = typeof window !== "undefined" && isLocalHost();
   const [mode, setMode] = useState<Mode>("browser");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const [browserSessionId, setBrowserSessionId] = useState<string | null>(null);
   const [browserStatus, setBrowserStatus] = useState<string | null>(null);
+
+  const effectiveMode: Mode = browserConnectAvailable ? mode : "password";
 
   useEffect(() => {
     if (!open) {
@@ -37,7 +46,7 @@ export function ConnectAccountModal({ open, onClose }: ConnectAccountModalProps)
   }, [open]);
 
   useEffect(() => {
-    if (!browserSessionId || browserStatus === "success" || browserStatus === "failed" || browserStatus === "cancelled") {
+    if (!browserConnectAvailable || !browserSessionId || browserStatus === "success" || browserStatus === "failed" || browserStatus === "cancelled") {
       return;
     }
     const id = window.setInterval(() => {
@@ -60,7 +69,7 @@ export function ConnectAccountModal({ open, onClose }: ConnectAccountModalProps)
       });
     }, 2000);
     return () => window.clearInterval(id);
-  }, [browserSessionId, browserStatus, onClose, router]);
+  }, [browserConnectAvailable, browserSessionId, browserStatus, onClose, router]);
 
   const busy = pending || Boolean(browserSessionId);
 
@@ -130,7 +139,7 @@ export function ConnectAccountModal({ open, onClose }: ConnectAccountModalProps)
               Close
             </button>
           )}
-          {mode === "password" ? (
+          {effectiveMode === "password" ? (
             <button type="button" className="btn btn-primary" onClick={submitPassword} disabled={busy}>
               {pending ? "Signing in…" : "Connect with password"}
             </button>
@@ -142,26 +151,28 @@ export function ConnectAccountModal({ open, onClose }: ConnectAccountModalProps)
         </>
       }
     >
-      <div className="flex-center gap-8" style={{ marginBottom: 16 }}>
-        <button
-          type="button"
-          className={`btn btn-sm ${mode === "browser" ? "btn-primary" : "btn-outline"}`}
-          onClick={() => !busy && setMode("browser")}
-          disabled={busy}
-        >
-          Sign in with browser
-        </button>
-        <button
-          type="button"
-          className={`btn btn-sm ${mode === "password" ? "btn-primary" : "btn-outline"}`}
-          onClick={() => !busy && setMode("password")}
-          disabled={busy}
-        >
-          Email & password
-        </button>
-      </div>
+      {browserConnectAvailable ? (
+        <div className="flex-center gap-8" style={{ marginBottom: 16 }}>
+          <button
+            type="button"
+            className={`btn btn-sm ${mode === "browser" ? "btn-primary" : "btn-outline"}`}
+            onClick={() => !busy && setMode("browser")}
+            disabled={busy}
+          >
+            Sign in with browser
+          </button>
+          <button
+            type="button"
+            className={`btn btn-sm ${mode === "password" ? "btn-primary" : "btn-outline"}`}
+            onClick={() => !busy && setMode("password")}
+            disabled={busy}
+          >
+            Email & password
+          </button>
+        </div>
+      ) : null}
 
-      {mode === "browser" ? (
+      {effectiveMode === "browser" ? (
         <div
           style={{
             background: "var(--green-light, #ecfdf5)",
@@ -173,10 +184,10 @@ export function ConnectAccountModal({ open, onClose }: ConnectAccountModalProps)
             color: "#065f46",
           }}
         >
-          A Chromium window opens on the machine running Reachly (your PC when using{" "}
-          <code>npm run dev</code>). If you are already signed in to LinkedIn there, you may land on the feed right
-          away and Reachly will save the session automatically. Otherwise sign in and complete verification—the window
-          closes when done and we store encrypted session cookies only (no password).
+          A Chromium window opens on the machine running Reachly (your PC when using <code>npm run dev</code>). If you
+          are already signed in to LinkedIn there, you may land on the feed right away and Reachly will save the session
+          automatically. Otherwise sign in and complete verification—the window closes when done and we store encrypted
+          session cookies only (no password).
         </div>
       ) : (
         <div
@@ -191,7 +202,7 @@ export function ConnectAccountModal({ open, onClose }: ConnectAccountModalProps)
           }}
         >
           Reachly signs in from the server using your password. It is encrypted (AES-256-GCM) and used only to refresh
-          expired sessions. Prefer browser sign-in if LinkedIn shows verification or restrictions.
+          expired sessions.
         </div>
       )}
 
@@ -202,19 +213,23 @@ export function ConnectAccountModal({ open, onClose }: ConnectAccountModalProps)
       ) : null}
 
       {error ? (
-        <p role="alert" className="form-hint" style={{ color: "var(--red)", marginBottom: 12 }}>{error}</p>
+        <p role="alert" className="form-hint" style={{ color: "var(--red)", marginBottom: 12 }}>
+          {error}
+        </p>
       ) : null}
 
       <form
         ref={formRef}
         onSubmit={(e) => {
           e.preventDefault();
-          if (mode === "password") submitPassword();
+          if (effectiveMode === "password") submitPassword();
           else submitBrowser();
         }}
       >
         <div className="form-group">
-          <label className="form-label" htmlFor="li-email">LinkedIn email</label>
+          <label className="form-label" htmlFor="li-email">
+            LinkedIn email
+          </label>
           <input
             id="li-email"
             name="email"
@@ -224,11 +239,17 @@ export function ConnectAccountModal({ open, onClose }: ConnectAccountModalProps)
             required
             disabled={busy}
           />
-          <div className="form-hint">Used to identify this seat in your workspace (browser sign-in does not store your password).</div>
+          <div className="form-hint">
+            {effectiveMode === "password"
+              ? "Used to identify this seat in your workspace."
+              : "Used to identify this seat in your workspace (browser sign-in does not store your password)."}
+          </div>
         </div>
-        {mode === "password" ? (
+        {effectiveMode === "password" ? (
           <div className="form-group">
-            <label className="form-label" htmlFor="li-password">LinkedIn password</label>
+            <label className="form-label" htmlFor="li-password">
+              LinkedIn password
+            </label>
             <input
               id="li-password"
               name="password"
@@ -241,11 +262,15 @@ export function ConnectAccountModal({ open, onClose }: ConnectAccountModalProps)
           </div>
         ) : null}
         <div className="form-group">
-          <label className="form-label" htmlFor="li-label">Account label (optional)</label>
+          <label className="form-label" htmlFor="li-label">
+            Account label (optional)
+          </label>
           <input id="li-label" name="label" className="form-input" placeholder="e.g. Ashish — Sales" disabled={busy} />
         </div>
         <div className="form-group">
-          <label className="form-label" htmlFor="li-limit">Daily connection limit</label>
+          <label className="form-label" htmlFor="li-limit">
+            Daily connection limit
+          </label>
           <select id="li-limit" name="daily_limit" className="form-input form-select" defaultValue="10" disabled={busy}>
             <option value="10">10 (Recommended — safest)</option>
             <option value="8">8</option>

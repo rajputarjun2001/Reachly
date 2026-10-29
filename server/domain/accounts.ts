@@ -1,4 +1,5 @@
 import { LinkedInAccount, PLAN_DAILY_LIMIT, Workspace, type LinkedInAccountDoc, type WorkspacePlan } from "../models";
+import { env } from "../config/env";
 import { decrypt, encrypt, encryptJSON } from "../utils/encryption";
 import { AppError, badRequest, conflict, notFound, unprocessable } from "../utils/errors";
 import * as linkedinActions from "../services/playwright/linkedinActions";
@@ -214,6 +215,12 @@ export async function startBrowserConnect(
   }
   const label = input.label ? String(input.label).trim() : undefined;
   const dailyLimit = await resolveDailyLimit(ctx.workspaceId, input.dailyLimit);
+
+  if (!env.browserConnectEnabled) {
+    throw unprocessable(
+      "Browser sign-in only works when Reachly runs on your computer (npm run dev). On Render and other cloud hosts, use Email & password to connect LinkedIn.",
+    );
+  }
 
   try {
     return await browserConnect.startBrowserConnectSession({
