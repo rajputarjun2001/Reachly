@@ -40,6 +40,7 @@ function fakeBrowser({ pages = {}, afterLoginUrl, onClick = {} }: FakeOptions = 
     const loc = {
       first: () => loc,
       last: () => loc,
+      locator: (_sub: string) => loc,
       count: async () => (state.elements[sel] ? 1 : 0),
       click: async () => {
         if (!state.elements[sel]) throw new Error(`No element ${sel}`);
@@ -80,6 +81,9 @@ function fakeBrowser({ pages = {}, afterLoginUrl, onClick = {} }: FakeOptions = 
     }),
     waitForNavigation: vi.fn(async () => undefined),
     locator,
+    getByLabel: () => locator("getByLabel"),
+    getByRole: () => locator("getByRole"),
+    title: vi.fn(async () => "LinkedIn Login"),
     $$eval: vi.fn(async (): Promise<InboxConversation[]> => []),
     evaluate: vi.fn(async (): Promise<unknown> => null),
   };
@@ -108,8 +112,8 @@ describe("browser setup", () => {
     const { browser, context, page } = fakeBrowser({ pages: { "*": {} } });
     await li.verifyCookies(COOKIE);
     expect(chromium.launch).toHaveBeenCalledWith({
-      headless: true,
-      args: expect.arrayContaining(["--disable-blink-features=AutomationControlled"]),
+      headless: false,
+      args: expect.arrayContaining(["--disable-blink-features=AutomationControlled", "--headless=new"]),
     });
     expect(browser.newContext).toHaveBeenCalledWith({
       userAgent: li.USER_AGENT,

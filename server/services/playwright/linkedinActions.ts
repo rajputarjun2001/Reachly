@@ -13,22 +13,30 @@ const LOGIN_USERNAME_SELECTORS = [
   "#session_key",
   'input[name="session_key"]',
   'input[autocomplete="username"]',
+  'input[type="email"]',
+  'input[aria-label*="Email" i]',
+  'input[placeholder*="Email" i]',
 ];
 const LOGIN_PASSWORD_SELECTORS = [
   "#password",
   "#session_password",
   'input[name="session_password"]',
   'input[autocomplete="current-password"]',
+  'input[type="password"]',
+  'input[aria-label*="Password" i]',
 ];
 const LOGIN_SUBMIT_SELECTORS = [
   'button[type="submit"]',
   'button[aria-label="Sign in"]',
   ".login__form_action_container button",
+  'button:has-text("Sign in")',
 ];
 const COOKIE_ACCEPT_SELECTORS = [
   'button[data-control-name*="cookie.consent.accept"]',
   'button[action-type="ACCEPT"]',
   'button:has-text("Accept")',
+  'button:has-text("Accept all")',
+  'button:has-text("Allow all")',
 ];
 
 export const ERRORS = {
@@ -100,10 +108,15 @@ export type LaunchOptions = { headless?: boolean };
 function launchChromium(wsEndpoint?: string, launch?: LaunchOptions) {
   if (wsEndpoint) return chromium.connect(wsEndpoint);
   const headless = launch?.headless ?? process.env.LINKEDIN_HEADLESS !== "false";
-  return chromium.launch({
-    headless,
-    args: ["--disable-blink-features=AutomationControlled", "--no-sandbox", "--disable-dev-shm-usage"],
-  });
+  const baseArgs = ["--disable-blink-features=AutomationControlled", "--no-sandbox", "--disable-dev-shm-usage"];
+  // Full Chrome headless (not headless-shell): LinkedIn often omits the password form in the shell build.
+  if (headless) {
+    return chromium.launch({
+      headless: false,
+      args: [...baseArgs, "--headless=new"],
+    });
+  }
+  return chromium.launch({ headless: false, args: baseArgs });
 }
 
 async function openBrowser({ wsEndpoint, cookies }: BrowserOptions & { cookies?: SessionCookie[] }): Promise<Session> {
@@ -137,10 +150,10 @@ async function goto(page: Page, url: string, waitUntil: "domcontentloaded" | "lo
   await page.goto(url, { waitUntil, timeout: NAV_TIMEOUT });
 }
 
-/** Fills the first matching visible field (LinkedIn A/B tests login markup). */
+/** Fills the first matching visible field (LinkedIn duplicates hidden mobile/desktop markup). */
 async function fillFirstVisible(page: Page, selectors: string[], value: string): Promise<string> {
   for (const selector of selectors) {
-    const field = page.locator(selector).first();
+    const field = page.locator(selector).locator("visible=true").first();
     try {
       await field.waitFor({ state: "visible", timeout: 4000 });
       await field.fill(value, { timeout: LOGIN_FIELD_TIMEOUT });
@@ -152,9 +165,45 @@ async function fillFirstVisible(page: Page, selectors: string[], value: string):
   throw new Error(`LOGIN_FORM_NOT_FOUND at ${page.url()}`);
 }
 
+async function fillLoginUsername(page: Page, email: string): Promise<string> {
+  try {
+    return await fillFirstVisible(page, LOGIN_USERNAME_SELECTORS, email);
+  } catch {
+    // fall through to accessible name selectors
+  }
+  const byLabel = page.getByLabel(/email or phone|email address|phone number|username/i).first();
+  await byLabel.waitFor({ state: "visible", timeout: LOGIN_FIELD_TIMEOUT });
+  await byLabel.fill(email, { timeout: LOGIN_FIELD_TIMEOUT });
+  return "getByLabel(username)";
+}
+
+async function fillLoginPassword(page: Page, password: string): Promise<void> {
+  try {
+    await fillFirstVisible(page, LOGIN_PASSWORD_SELECTORS, password);
+    return;
+  } catch {
+    // fall through
+  }
+  const byLabel = page.getByLabel(/^password$/i).first();
+  await byLabel.waitFor({ state: "visible", timeout: LOGIN_FIELD_TIMEOUT });
+  await byLabel.fill(password, { timeout: LOGIN_FIELD_TIMEOUT });
+}
+
+async function clickLoginSubmit(page: Page) {
+  try {
+    await clickFirstVisible(page, LOGIN_SUBMIT_SELECTORS);
+    return;
+  } catch {
+    // fall through
+  }
+  const signIn = page.getByRole("button", { name: /^sign in$/i }).first();
+  await signIn.waitFor({ state: "visible", timeout: LOGIN_FIELD_TIMEOUT });
+  await signIn.click({ timeout: LOGIN_FIELD_TIMEOUT });
+}
+
 async function clickFirstVisible(page: Page, selectors: string[]) {
   for (const selector of selectors) {
-    const button = page.locator(selector).first();
+    const button = page.locator(selector).locator("visible=true").first();
     try {
       await button.waitFor({ state: "visible", timeout: 4000 });
       await button.click({ timeout: LOGIN_FIELD_TIMEOUT });
@@ -269,13 +318,24 @@ export async function loginToLinkedIn(
     if (isLoggedInUrl(page.url())) return context.cookies();
 
     page.setDefaultTimeout(LOGIN_FIELD_TIMEOUT);
-    const emailSelector = await fillFirstVisible(page, LOGIN_USERNAME_SELECTORS, email);
+    let emailSelector: string;
+    try {
+      emailSelector = await fillLoginUsername(page, email);
+    } catch (err) {
+      const title = await page.title().catch(() => "");
+      throw new Error(`LOGIN_FORM_NOT_FOUND at ${page.url()} (${title})`);
+    }
     await page.waitForTimeout(500 + Math.random() * 1000);
-    await fillFirstVisible(page, LOGIN_PASSWORD_SELECTORS, password);
+    try {
+      await fillLoginPassword(page, password);
+    } catch {
+      const title = await page.title().catch(() => "");
+      throw new Error(`LOGIN_FORM_NOT_FOUND at ${page.url()} (${title})`);
+    }
     await humanDelay(page);
     await Promise.all([
       page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: NAV_TIMEOUT }).catch(() => undefined),
-      clickFirstVisible(page, LOGIN_SUBMIT_SELECTORS),
+      clickLoginSubmit(page),
     ]);
     await humanDelay(page);
 
