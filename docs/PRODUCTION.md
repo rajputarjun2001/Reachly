@@ -43,8 +43,9 @@ Use a **Web Service** with enough RAM for Chromium (recommend **≥ 1 GB**; 512 
 |---------|--------|
 | Build command | `npm ci && npm run build` |
 | Start command | `npm run start` |
+| Environment | `PLAYWRIGHT_BROWSERS_PATH=0` (optional; server defaults to this) |
 
-If the build log never shows Playwright downloading Chromium, LinkedIn connect will fail with a missing executable under `/opt/render/.cache/ms-playwright/`. Do **not** set `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1`.
+Chromium is installed into `node_modules` during `npm run build`, not Render’s `/opt/render/.cache/ms-playwright/` cache (that path is often empty at runtime). If logs still say `Executable doesn't exist`, confirm the build log includes Playwright downloading Chromium. Do **not** set `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1`.
 
 On Linux hosts, if Chromium downloads but fails to start with missing shared libraries, run `npx playwright install-deps chromium` in the build step (requires a image/OS that allows it) or deploy with `DOCKER_ENABLED=true` and Docker available on the host.
 

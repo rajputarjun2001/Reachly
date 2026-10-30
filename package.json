@@ -8,14 +8,14 @@
   "scripts": {
     "dev": "tsx watch --clear-screen=false --exclude \"./src/**\" --exclude \"./.next/**\" server.ts",
     "build": "next build && tsc -p tsconfig.server.json && npm run browsers:install",
-    "start": "cross-env NODE_ENV=production node dist/server.js",
+    "start": "cross-env NODE_ENV=production PLAYWRIGHT_BROWSERS_PATH=0 node dist/server.js",
     "lint": "next lint",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.server.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
     "services:up": "docker compose up -d",
     "services:down": "docker compose down",
-    "browsers:install": "playwright install chromium"
+    "browsers:install": "cross-env PLAYWRIGHT_BROWSERS_PATH=0 playwright install chromium"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

@@ -1,4 +1,10 @@
 import "dotenv/config";
+
+/** Match `npm run browsers:install`: store Chromium under node_modules so PaaS deploys include it. */
+if (process.env.PLAYWRIGHT_BROWSERS_PATH === undefined) {
+  process.env.PLAYWRIGHT_BROWSERS_PATH = "0";
+}
+
 import { createServer } from "http";
 import next from "next";
 import { env, getBackendConfigError } from "./server/config/env";
