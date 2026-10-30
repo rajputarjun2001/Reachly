@@ -66,9 +66,31 @@ export async function connectAccount(input: {
   return doc ? mapAccount(doc, todayKey) : null;
 }
 
-export async function reconnectAccount(id: string, password?: string): Promise<void> {
+export async function connectAccountWithSessionCookies(input: {
+  email: string;
+  sessionCookies: string;
+  label?: string;
+  dailyLimit?: number;
+}): Promise<LinkedInAccountView | null> {
+  const { ctx, todayKey } = await scoped();
+  const doc = await accountsDomain.connectAccountWithSessionCookies(ctx, {
+    linkedinEmail: input.email,
+    sessionCookies: input.sessionCookies,
+    label: input.label,
+    dailyLimit: input.dailyLimit,
+  });
+  return doc ? mapAccount(doc, todayKey) : null;
+}
+
+export async function reconnectAccount(
+  id: string,
+  input?: { password?: string; sessionCookies?: string },
+): Promise<void> {
   const { ctx } = await scoped();
-  await accountsDomain.reconnectAccount(ctx, id, { linkedinPassword: password || undefined });
+  await accountsDomain.reconnectAccount(ctx, id, {
+    linkedinPassword: input?.password || undefined,
+    sessionCookies: input?.sessionCookies,
+  });
 }
 
 export async function checkAccount(id: string): Promise<AccountHealth> {

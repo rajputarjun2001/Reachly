@@ -16,6 +16,13 @@ accountsRouter.post(
   asyncHandler(async (req, res) => ok(res, await accounts.startBrowserConnect(ctxOf(req), req.body || {}), "Browser sign-in started")),
 );
 
+accountsRouter.post(
+  "/connect/session",
+  asyncHandler(async (req, res) =>
+    created(res, await accounts.connectAccountWithSessionCookies(ctxOf(req), req.body || {}), "LinkedIn account connected"),
+  ),
+);
+
 accountsRouter.get(
   "/connect/browser/:sessionId",
   asyncHandler(async (req, res) => ok(res, accounts.browserConnectStatus(ctxOf(req), req.params.sessionId))),

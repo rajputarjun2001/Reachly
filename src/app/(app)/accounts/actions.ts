@@ -6,6 +6,7 @@ import {
   cancelBrowserConnect,
   checkAccount,
   connectAccount,
+  connectAccountWithSessionCookies,
   pollBrowserConnect,
   reconnectAccount,
   removeAccount,
@@ -44,10 +45,34 @@ export async function connectAccountAction(formData: FormData): Promise<AccountA
   }
 }
 
-export async function reconnectAccountAction(id: string, password?: string): Promise<AccountActionResult> {
+export async function connectAccountWithSessionCookiesAction(formData: FormData): Promise<AccountActionResult> {
+  if (!isBackendConfigured()) return NOT_CONFIGURED;
+  const email = String(formData.get("email") ?? "").trim();
+  const sessionCookies = String(formData.get("session_cookies") ?? "").trim();
+  if (!email) return { error: "LinkedIn email is required." };
+  if (!sessionCookies) return { error: "Paste your LinkedIn session cookies (li_at)." };
+  try {
+    const account = await connectAccountWithSessionCookies({
+      email,
+      sessionCookies,
+      label: String(formData.get("label") ?? "").trim() || undefined,
+      dailyLimit: optionalLimit(formData.get("daily_limit")),
+    });
+    revalidatePath("/accounts");
+    return { success: `Connected ${account?.display_name ?? email}.` };
+  } catch (err) {
+    revalidatePath("/accounts");
+    return { error: actionErrorMessage(err, "Could not connect with those session cookies.") };
+  }
+}
+
+export async function reconnectAccountAction(
+  id: string,
+  input?: { password?: string; sessionCookies?: string },
+): Promise<AccountActionResult> {
   if (!isBackendConfigured()) return NOT_CONFIGURED;
   try {
-    await reconnectAccount(id, password);
+    await reconnectAccount(id, input);
     revalidatePath("/accounts");
     return { success: "Account reconnected." };
   } catch (err) {

@@ -71,6 +71,8 @@ function fakeBrowser({ pages = {}, afterLoginUrl, onClick = {} }: FakeOptions = 
     goto: vi.fn(async (url: string) => load(url)),
     url: () => state.url,
     waitForTimeout: vi.fn(async (_ms: number) => undefined),
+    waitForLoadState: vi.fn(async () => undefined),
+    frames: () => [],
     setDefaultTimeout: vi.fn(),
     fill: vi.fn(async (sel: string, v: string) => {
       actions.push(["fill", sel, v]);
@@ -84,10 +86,11 @@ function fakeBrowser({ pages = {}, afterLoginUrl, onClick = {} }: FakeOptions = 
     getByLabel: () => locator("getByLabel"),
     getByRole: () => locator("getByRole"),
     title: vi.fn(async () => "LinkedIn Login"),
+    evaluate: vi.fn(async (): Promise<unknown> => true),
     $$eval: vi.fn(async (): Promise<InboxConversation[]> => []),
-    evaluate: vi.fn(async (): Promise<unknown> => null),
   };
   const context = {
+    addInitScript: vi.fn(async () => undefined),
     addCookies: vi.fn(async () => undefined),
     cookies: vi.fn(async () => [{ name: "li_at", value: "v" }]),
     newPage: vi.fn(async () => page),

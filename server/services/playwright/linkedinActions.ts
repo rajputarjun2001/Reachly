@@ -1,4 +1,4 @@
-import { chromium, type Browser, type BrowserContext, type Cookie, type Page } from "playwright";
+import { chromium, type Browser, type BrowserContext, type Cookie, type Frame, type Page } from "playwright";
 
 export type SessionCookie = Cookie;
 
@@ -128,6 +128,9 @@ async function openBrowser({ wsEndpoint, cookies }: BrowserOptions & { cookies?:
     timezoneId: "UTC",
     extraHTTPHeaders: { "Accept-Language": "en-US,en;q=0.9" },
   });
+  await context.addInitScript(() => {
+    Object.defineProperty(navigator, "webdriver", { get: () => false });
+  });
   if (cookies && cookies.length) await context.addCookies(cookies);
   const page = await context.newPage();
   page.setDefaultTimeout(15000);
@@ -150,10 +153,119 @@ async function goto(page: Page, url: string, waitUntil: "domcontentloaded" | "lo
   await page.goto(url, { waitUntil, timeout: NAV_TIMEOUT });
 }
 
+type LoginRoot = Page | Frame;
+
+async function loginRoots(page: Page): Promise<LoginRoot[]> {
+  return [page, ...page.frames().filter((f) => f !== page.mainFrame())];
+}
+
+async function hasLoginUsername(root: LoginRoot): Promise<boolean> {
+  for (const selector of LOGIN_USERNAME_SELECTORS) {
+    if ((await root.locator(selector).count()) > 0) return true;
+  }
+  return false;
+}
+
+/** Waits until username/session_key exists on the page or in a child frame. */
+async function waitForLoginForm(page: Page, timeout = 45_000): Promise<LoginRoot> {
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    for (const root of await loginRoots(page)) {
+      if (await hasLoginUsername(root)) return root;
+    }
+    await page.waitForTimeout(400);
+  }
+  const title = await page.title().catch(() => "");
+  throw new Error(`LOGIN_FORM_NOT_FOUND at ${page.url()} (${title})`);
+}
+
+const DOM_FILL_LOGIN = ({ email, password }: { email: string; password: string }) => {
+  const pick = (selectors: string[]) => {
+    for (const selector of selectors) {
+      const el = document.querySelector(selector);
+      if (el instanceof HTMLInputElement) return el;
+    }
+    return null;
+  };
+  const user = pick(["#username", "#session_key", 'input[name="session_key"]', 'input[autocomplete="username"]', 'input[type="email"]']);
+  const pass = pick(["#password", "#session_password", 'input[name="session_password"]', 'input[type="password"]']);
+  if (!user || !pass) return false;
+  user.focus();
+  user.value = email;
+  user.dispatchEvent(new Event("input", { bubbles: true }));
+  user.dispatchEvent(new Event("change", { bubbles: true }));
+  pass.focus();
+  pass.value = password;
+  pass.dispatchEvent(new Event("input", { bubbles: true }));
+  pass.dispatchEvent(new Event("change", { bubbles: true }));
+  return true;
+};
+
+async function fillLoginOnRoot(root: LoginRoot, page: Page, email: string, password: string): Promise<string> {
+  try {
+    const emailSelector = await fillFirstVisibleOnRoot(root, LOGIN_USERNAME_SELECTORS, email);
+    await page.waitForTimeout(500 + Math.random() * 1000);
+    await fillFirstVisibleOnRoot(root, LOGIN_PASSWORD_SELECTORS, password);
+    return emailSelector;
+  } catch {
+    // fall through
+  }
+
+  for (const selector of LOGIN_USERNAME_SELECTORS) {
+    const user = root.locator(selector).first();
+    try {
+      await user.waitFor({ state: "attached", timeout: 5000 });
+      await user.fill(email, { force: true, timeout: LOGIN_FIELD_TIMEOUT });
+      const pass = root.locator(LOGIN_PASSWORD_SELECTORS.join(", ")).first();
+      await pass.fill(password, { force: true, timeout: LOGIN_FIELD_TIMEOUT });
+      return `${selector} (force)`;
+    } catch {
+      // try next selector
+    }
+  }
+
+  try {
+    const byEmail = root.getByLabel(/email or phone|email address|phone number|username/i).first();
+    await byEmail.fill(email, { force: true, timeout: LOGIN_FIELD_TIMEOUT });
+    await root.getByLabel(/^password$/i).first().fill(password, { force: true, timeout: LOGIN_FIELD_TIMEOUT });
+    return "getByLabel (force)";
+  } catch {
+    // fall through
+  }
+
+  const domOk = await root.evaluate(DOM_FILL_LOGIN, { email, password });
+  if (!domOk) throw new Error("LOGIN_FORM_NOT_FOUND dom");
+  return "dom";
+}
+
+async function submitLoginOnRoot(root: LoginRoot) {
+  try {
+    await clickFirstVisibleOnRoot(root, LOGIN_SUBMIT_SELECTORS);
+    return;
+  } catch {
+    // fall through
+  }
+  try {
+    await root.getByRole("button", { name: /^sign in$/i }).first().click({ force: true, timeout: LOGIN_FIELD_TIMEOUT });
+    return;
+  } catch {
+    // fall through
+  }
+  const clicked = await root.evaluate(() => {
+    const btn =
+      document.querySelector('button[type="submit"]') ||
+      Array.from(document.querySelectorAll("button")).find((b) => /sign in/i.test(b.textContent || ""));
+    if (!(btn instanceof HTMLButtonElement)) return false;
+    btn.click();
+    return true;
+  });
+  if (!clicked) throw new Error(`LOGIN_SUBMIT_NOT_FOUND at ${root.url()}`);
+}
+
 /** Fills the first matching visible field (LinkedIn duplicates hidden mobile/desktop markup). */
-async function fillFirstVisible(page: Page, selectors: string[], value: string): Promise<string> {
+async function fillFirstVisibleOnRoot(root: LoginRoot, selectors: string[], value: string): Promise<string> {
   for (const selector of selectors) {
-    const field = page.locator(selector).locator("visible=true").first();
+    const field = root.locator(selector).locator("visible=true").first();
     try {
       await field.waitFor({ state: "visible", timeout: 4000 });
       await field.fill(value, { timeout: LOGIN_FIELD_TIMEOUT });
@@ -162,48 +274,16 @@ async function fillFirstVisible(page: Page, selectors: string[], value: string):
       // try next selector
     }
   }
-  throw new Error(`LOGIN_FORM_NOT_FOUND at ${page.url()}`);
+  throw new Error("LOGIN_FIELD_NOT_VISIBLE");
 }
 
-async function fillLoginUsername(page: Page, email: string): Promise<string> {
-  try {
-    return await fillFirstVisible(page, LOGIN_USERNAME_SELECTORS, email);
-  } catch {
-    // fall through to accessible name selectors
-  }
-  const byLabel = page.getByLabel(/email or phone|email address|phone number|username/i).first();
-  await byLabel.waitFor({ state: "visible", timeout: LOGIN_FIELD_TIMEOUT });
-  await byLabel.fill(email, { timeout: LOGIN_FIELD_TIMEOUT });
-  return "getByLabel(username)";
+async function fillFirstVisible(page: Page, selectors: string[], value: string): Promise<string> {
+  return fillFirstVisibleOnRoot(page, selectors, value);
 }
 
-async function fillLoginPassword(page: Page, password: string): Promise<void> {
-  try {
-    await fillFirstVisible(page, LOGIN_PASSWORD_SELECTORS, password);
-    return;
-  } catch {
-    // fall through
-  }
-  const byLabel = page.getByLabel(/^password$/i).first();
-  await byLabel.waitFor({ state: "visible", timeout: LOGIN_FIELD_TIMEOUT });
-  await byLabel.fill(password, { timeout: LOGIN_FIELD_TIMEOUT });
-}
-
-async function clickLoginSubmit(page: Page) {
-  try {
-    await clickFirstVisible(page, LOGIN_SUBMIT_SELECTORS);
-    return;
-  } catch {
-    // fall through
-  }
-  const signIn = page.getByRole("button", { name: /^sign in$/i }).first();
-  await signIn.waitFor({ state: "visible", timeout: LOGIN_FIELD_TIMEOUT });
-  await signIn.click({ timeout: LOGIN_FIELD_TIMEOUT });
-}
-
-async function clickFirstVisible(page: Page, selectors: string[]) {
+async function clickFirstVisibleOnRoot(root: LoginRoot, selectors: string[]) {
   for (const selector of selectors) {
-    const button = page.locator(selector).locator("visible=true").first();
+    const button = root.locator(selector).locator("visible=true").first();
     try {
       await button.waitFor({ state: "visible", timeout: 4000 });
       await button.click({ timeout: LOGIN_FIELD_TIMEOUT });
@@ -212,7 +292,7 @@ async function clickFirstVisible(page: Page, selectors: string[]) {
       // try next selector
     }
   }
-  throw new Error(`LOGIN_SUBMIT_NOT_FOUND at ${page.url()}`);
+  throw new Error(`LOGIN_SUBMIT_NOT_FOUND at ${root.url()}`);
 }
 
 async function dismissCookieBanner(page: Page) {
@@ -313,29 +393,26 @@ export async function loginToLinkedIn(
     if (!loaded) throw new Error("LOGIN_PAGE_LOAD_FAILED");
 
     await dismissCookieBanner(page);
+    await page.waitForLoadState("networkidle", { timeout: 20_000 }).catch(() => undefined);
+    await dismissCookieBanner(page);
     await humanDelay(page);
 
     if (isLoggedInUrl(page.url())) return context.cookies();
 
     page.setDefaultTimeout(LOGIN_FIELD_TIMEOUT);
+    const formRoot = await waitForLoginForm(page);
     let emailSelector: string;
     try {
-      emailSelector = await fillLoginUsername(page, email);
+      emailSelector = await fillLoginOnRoot(formRoot, page, email, password);
     } catch (err) {
       const title = await page.title().catch(() => "");
-      throw new Error(`LOGIN_FORM_NOT_FOUND at ${page.url()} (${title})`);
-    }
-    await page.waitForTimeout(500 + Math.random() * 1000);
-    try {
-      await fillLoginPassword(page, password);
-    } catch {
-      const title = await page.title().catch(() => "");
-      throw new Error(`LOGIN_FORM_NOT_FOUND at ${page.url()} (${title})`);
+      const hint = (err as Error).message.includes("dom") ? "no inputs in DOM" : "inputs not fillable";
+      throw new Error(`LOGIN_FORM_NOT_FOUND at ${page.url()} (${title}; ${hint})`);
     }
     await humanDelay(page);
     await Promise.all([
       page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: NAV_TIMEOUT }).catch(() => undefined),
-      clickLoginSubmit(page),
+      submitLoginOnRoot(formRoot),
     ]);
     await humanDelay(page);
 

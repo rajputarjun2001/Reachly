@@ -1,7 +1,7 @@
 import { LinkedInAccount, PLAN_DAILY_LIMIT, Workspace, type LinkedInAccountDoc, type WorkspacePlan } from "../models";
 import { env } from "../config/env";
 import { decrypt, encrypt, encryptJSON } from "../utils/encryption";
-import { AppError, badRequest, conflict, notFound, unprocessable } from "../utils/errors";
+import { AppError, badRequest, conflict, isAppError, notFound, unprocessable } from "../utils/errors";
 import * as linkedinActions from "../services/playwright/linkedinActions";
 import * as containerManager from "../services/docker/containerManager";
 import { browserOptions, getCookies, pauseCampaignsForAccount } from "../services/accountSession";
@@ -9,11 +9,14 @@ import { ensureInboxPoll, removeInboxPoll } from "../services/scheduler/dailySch
 import { logEvent } from "../services/events";
 import type { SessionCookie } from "../services/playwright/linkedinActions";
 import * as browserConnect from "../services/playwright/browserConnectSessions";
+import { parseLinkedInSessionCookies } from "../utils/linkedinCookies";
 import { oid, type AuthContext } from "./context";
 
 const { ERRORS } = linkedinActions;
 export const CHALLENGE_MESSAGE = "LinkedIn requires verification. Please log in manually and try again.";
 export const CONNECT_LOGIN_FAILED = "Could not connect the LinkedIn account. Please try again later.";
+export const INVALID_SESSION_COOKIES =
+  "LinkedIn rejected these session cookies. Sign in at linkedin.com in your browser, copy a fresh li_at, and try again.";
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export async function workspaceDailyCap(workspaceId: string): Promise<number> {
@@ -105,6 +108,22 @@ async function connectSession(account: LinkedInAccountDoc, password: string) {
   await persistSession(account, cookies, "connect_password");
 }
 
+async function applyImportedSession(
+  account: LinkedInAccountDoc,
+  rawCookies: unknown,
+  source: "connect_browser" | "connect_session_import" | "reconnect_session_import",
+) {
+  const cookies = parseLinkedInSessionCookies(rawCookies);
+  await ensureBrowserContainer(account);
+  const verified = await linkedinActions.verifyCookies(cookies, browserOptions(account));
+  if (!verified.valid) {
+    account.status = "disconnected";
+    await account.save();
+    throw unprocessable(INVALID_SESSION_COOKIES, "INVALID_SESSION_COOKIES");
+  }
+  await persistSession(account, cookies, source);
+}
+
 async function createAccountFromBrowserSession(
   ctx: AuthContext,
   cookies: SessionCookie[],
@@ -121,9 +140,41 @@ async function createAccountFromBrowserSession(
     dailyLimit: await resolveDailyLimit(ctx.workspaceId, input.dailyLimit),
     status: "connecting",
   });
-  await ensureBrowserContainer(account);
-  await persistSession(account, cookies, "connect_browser");
+  await applyImportedSession(account, cookies, "connect_browser");
   return String(account._id);
+}
+
+export async function connectAccountWithSessionCookies(
+  ctx: AuthContext,
+  input: { linkedinEmail: unknown; sessionCookies: unknown; dailyLimit?: unknown; label?: unknown },
+) {
+  if (!input.linkedinEmail || !EMAIL_RE.test(String(input.linkedinEmail).trim())) {
+    throw badRequest("A valid LinkedIn email is required (used as the account id in Reachly)");
+  }
+  const email = String(input.linkedinEmail).toLowerCase().trim();
+  if (await LinkedInAccount.exists({ workspaceId: ctx.workspaceId, linkedinEmail: email })) {
+    throw conflict("This LinkedIn account is already connected");
+  }
+
+  const account = await LinkedInAccount.create({
+    workspaceId: ctx.workspaceId,
+    linkedinEmail: email,
+    label: input.label ? String(input.label).trim() : undefined,
+    dailyLimit: await resolveDailyLimit(ctx.workspaceId, input.dailyLimit),
+    status: "connecting",
+  });
+
+  try {
+    await applyImportedSession(account, input.sessionCookies, "connect_session_import");
+  } catch (err) {
+    if (!isAppError(err)) {
+      console.error("[accounts] session import failed:", (err as Error).message);
+      throw new AppError(502, CONNECT_LOGIN_FAILED);
+    }
+    throw err;
+  }
+
+  return LinkedInAccount.findById(account._id);
 }
 
 export async function connectAccount(
@@ -180,16 +231,30 @@ export async function accountStatus(ctx: AuthContext, id: string) {
 export async function reconnectAccount(
   ctx: AuthContext,
   id: string,
-  input: { linkedinPassword?: unknown; dailyLimit?: unknown } = {},
+  input: { linkedinPassword?: unknown; sessionCookies?: unknown; dailyLimit?: unknown } = {},
 ) {
   const account = await findAccount(ctx, id, { withSecrets: true });
   if (input.linkedinPassword) account.linkedinPasswordEncrypted = encrypt(String(input.linkedinPassword));
   if (input.dailyLimit !== undefined) account.dailyLimit = await resolveDailyLimit(ctx.workspaceId, input.dailyLimit);
-  if (!account.linkedinPasswordEncrypted) {
-    throw badRequest("This account has no stored password. Use browser sign-in to refresh the session.");
-  }
   account.status = "connecting";
   await account.save();
+
+  if (input.sessionCookies !== undefined && String(input.sessionCookies).trim()) {
+    try {
+      await applyImportedSession(account, input.sessionCookies, "reconnect_session_import");
+    } catch (err) {
+      if (!isAppError(err)) {
+        console.error("[accounts] session reconnect failed:", (err as Error).message);
+        throw new AppError(502, CONNECT_LOGIN_FAILED);
+      }
+      throw err;
+    }
+    return LinkedInAccount.findById(account._id);
+  }
+
+  if (!account.linkedinPasswordEncrypted) {
+    throw badRequest("Paste fresh session cookies or add a LinkedIn password to reconnect.");
+  }
 
   const password = input.linkedinPassword
     ? String(input.linkedinPassword)
@@ -214,7 +279,7 @@ export async function startBrowserConnect(
 
   if (!env.browserConnectEnabled) {
     throw unprocessable(
-      "Browser sign-in only works when Reachly runs on your computer (npm run dev). On Render and other cloud hosts, use Email & password to connect LinkedIn.",
+      "Browser sign-in only works when Reachly runs on your computer (npm run dev). On Render and other cloud hosts, paste session cookies or use email and password.",
     );
   }
 

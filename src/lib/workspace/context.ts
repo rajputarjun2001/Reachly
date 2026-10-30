@@ -2,9 +2,11 @@ import "server-only";
 
 import { cache } from "react";
 import { redirect } from "next/navigation";
-import { Workspace } from "@server/models";
+import { User, Workspace } from "@server/models";
+import { issueToken } from "@server/domain/auth";
 import type { AuthContext } from "@server/domain/context";
-import { getCurrentUser, getSession } from "@/lib/auth/session";
+import { getCurrentUser, getSession, setSessionCookie } from "@/lib/auth/session";
+import { ensureDb } from "@/lib/server/backend";
 
 export type WorkspaceRole = "owner" | "member";
 
@@ -56,6 +58,18 @@ export async function requireAuthContext(): Promise<AuthContext> {
   return { userId: ctx.userId, workspaceId: ctx.workspaceId, role: ctx.role };
 }
 
+/** Drop orphan workspace ids (e.g. after switching to an empty local database) and refresh the JWT. */
+async function syncStaleWorkspaceSession(userId: string): Promise<void> {
+  await ensureDb();
+  const user = await User.findById(userId);
+  if (!user?.workspaceId) return;
+  const workspace = await Workspace.findById(user.workspaceId);
+  if (workspace) return;
+  user.workspaceId = null;
+  await user.save();
+  await setSessionCookie(await issueToken(user));
+}
+
 /** For pages: sends the visitor to login, workspace setup, or clears a stale session. */
 export async function redirectWithoutWorkspace(nextPath: string): Promise<never> {
   const session = await getSession();
@@ -63,5 +77,6 @@ export async function redirectWithoutWorkspace(nextPath: string): Promise<never>
   const user = await getCurrentUser();
   if (!user) redirect("/auth/signout");
   if (!user.workspaceId) redirect("/workspace/setup");
-  redirect("/auth/signout");
+  await syncStaleWorkspaceSession(user.id);
+  redirect("/workspace/setup");
 }

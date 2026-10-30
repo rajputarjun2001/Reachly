@@ -6,6 +6,7 @@ import { ModalShell } from "@/components/modals/modal-shell";
 import {
   cancelBrowserConnectAction,
   connectAccountAction,
+  connectAccountWithSessionCookiesAction,
   pollBrowserConnectAction,
   startBrowserConnectAction,
 } from "@/app/(app)/accounts/actions";
@@ -15,7 +16,7 @@ type ConnectAccountModalProps = {
   onClose: () => void;
 };
 
-type Mode = "password" | "browser";
+type Mode = "password" | "browser" | "cookies";
 
 function isLocalHost(): boolean {
   if (typeof window === "undefined") return false;
@@ -27,23 +28,21 @@ export function ConnectAccountModal({ open, onClose }: ConnectAccountModalProps)
   const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);
   const browserConnectAvailable = typeof window !== "undefined" && isLocalHost();
-  const [mode, setMode] = useState<Mode>("browser");
+  const [mode, setMode] = useState<Mode>("cookies");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const [browserSessionId, setBrowserSessionId] = useState<string | null>(null);
   const [browserStatus, setBrowserStatus] = useState<string | null>(null);
 
-  const effectiveMode: Mode = browserConnectAvailable ? mode : "password";
-
   useEffect(() => {
     if (!open) {
       setError(null);
-      setMode("browser");
+      setMode(browserConnectAvailable ? "browser" : "cookies");
       setBrowserSessionId(null);
       setBrowserStatus(null);
       formRef.current?.reset();
     }
-  }, [open]);
+  }, [open, browserConnectAvailable]);
 
   useEffect(() => {
     if (!browserConnectAvailable || !browserSessionId || browserStatus === "success" || browserStatus === "failed" || browserStatus === "cancelled") {
@@ -89,6 +88,23 @@ export function ConnectAccountModal({ open, onClose }: ConnectAccountModalProps)
     });
   };
 
+  const submitCookies = () => {
+    const form = formRef.current;
+    if (!form || !form.reportValidity()) return;
+    const formData = new FormData(form);
+    setError(null);
+    startTransition(async () => {
+      const result = await connectAccountWithSessionCookiesAction(formData);
+      if (result.error) {
+        setError(result.error);
+        router.refresh();
+        return;
+      }
+      onClose();
+      router.refresh();
+    });
+  };
+
   const submitBrowser = () => {
     const form = formRef.current;
     if (!form || !form.reportValidity()) return;
@@ -107,6 +123,12 @@ export function ConnectAccountModal({ open, onClose }: ConnectAccountModalProps)
         setBrowserStatus("pending");
       }
     });
+  };
+
+  const submit = () => {
+    if (mode === "password") submitPassword();
+    else if (mode === "cookies") submitCookies();
+    else submitBrowser();
   };
 
   const cancelBrowser = () => {
@@ -139,9 +161,13 @@ export function ConnectAccountModal({ open, onClose }: ConnectAccountModalProps)
               Close
             </button>
           )}
-          {effectiveMode === "password" ? (
+          {mode === "password" ? (
             <button type="button" className="btn btn-primary" onClick={submitPassword} disabled={busy}>
               {pending ? "Signing in…" : "Connect with password"}
+            </button>
+          ) : mode === "cookies" ? (
+            <button type="button" className="btn btn-primary" onClick={submitCookies} disabled={busy}>
+              {pending ? "Verifying…" : "Connect with session"}
             </button>
           ) : (
             <button type="button" className="btn btn-primary" onClick={submitBrowser} disabled={busy}>
@@ -151,8 +177,8 @@ export function ConnectAccountModal({ open, onClose }: ConnectAccountModalProps)
         </>
       }
     >
-      {browserConnectAvailable ? (
-        <div className="flex-center gap-8" style={{ marginBottom: 16 }}>
+      <div className="flex-center gap-8" style={{ marginBottom: 16, flexWrap: "wrap" }}>
+        {browserConnectAvailable ? (
           <button
             type="button"
             className={`btn btn-sm ${mode === "browser" ? "btn-primary" : "btn-outline"}`}
@@ -161,18 +187,26 @@ export function ConnectAccountModal({ open, onClose }: ConnectAccountModalProps)
           >
             Sign in with browser
           </button>
-          <button
-            type="button"
-            className={`btn btn-sm ${mode === "password" ? "btn-primary" : "btn-outline"}`}
-            onClick={() => !busy && setMode("password")}
-            disabled={busy}
-          >
-            Email & password
-          </button>
-        </div>
-      ) : null}
+        ) : null}
+        <button
+          type="button"
+          className={`btn btn-sm ${mode === "cookies" ? "btn-primary" : "btn-outline"}`}
+          onClick={() => !busy && setMode("cookies")}
+          disabled={busy}
+        >
+          Paste session cookies
+        </button>
+        <button
+          type="button"
+          className={`btn btn-sm ${mode === "password" ? "btn-primary" : "btn-outline"}`}
+          onClick={() => !busy && setMode("password")}
+          disabled={busy}
+        >
+          Email & password
+        </button>
+      </div>
 
-      {effectiveMode === "browser" ? (
+      {mode === "browser" ? (
         <div
           style={{
             background: "var(--green-light, #ecfdf5)",
@@ -189,6 +223,26 @@ export function ConnectAccountModal({ open, onClose }: ConnectAccountModalProps)
           automatically. Otherwise sign in and complete verification—the window closes when done and we store encrypted
           session cookies only (no password).
         </div>
+      ) : mode === "cookies" ? (
+        <div
+          style={{
+            background: "var(--green-light, #ecfdf5)",
+            border: "1px solid #a7f3d0",
+            borderRadius: 8,
+            padding: "12px 14px",
+            marginBottom: 20,
+            fontSize: 12.5,
+            color: "#065f46",
+          }}
+        >
+          Sign in at{" "}
+          <a href="https://www.linkedin.com/login" target="_blank" rel="noopener noreferrer">
+            linkedin.com
+          </a>{" "}
+          in your browser, then open DevTools → Application → Cookies → <code>linkedin.com</code> and copy{" "}
+          <code>li_at</code> (or export cookies as JSON). Reachly verifies the session from the server and stores it
+          encrypted—ideal for deployed hosts like Render.
+        </div>
       ) : (
         <div
           style={{
@@ -202,7 +256,7 @@ export function ConnectAccountModal({ open, onClose }: ConnectAccountModalProps)
           }}
         >
           Reachly signs in from the server using your password. It is encrypted (AES-256-GCM) and used only to refresh
-          expired sessions.
+          expired sessions. Cloud hosts may block this; prefer paste session cookies when password login fails.
         </div>
       )}
 
@@ -222,8 +276,7 @@ export function ConnectAccountModal({ open, onClose }: ConnectAccountModalProps)
         ref={formRef}
         onSubmit={(e) => {
           e.preventDefault();
-          if (effectiveMode === "password") submitPassword();
-          else submitBrowser();
+          submit();
         }}
       >
         <div className="form-group">
@@ -240,12 +293,12 @@ export function ConnectAccountModal({ open, onClose }: ConnectAccountModalProps)
             disabled={busy}
           />
           <div className="form-hint">
-            {effectiveMode === "password"
+            {mode === "password"
               ? "Used to identify this seat in your workspace."
-              : "Used to identify this seat in your workspace (browser sign-in does not store your password)."}
+              : "Used to identify this seat in your workspace (session import does not store your password)."}
           </div>
         </div>
-        {effectiveMode === "password" ? (
+        {mode === "password" ? (
           <div className="form-group">
             <label className="form-label" htmlFor="li-password">
               LinkedIn password
@@ -258,6 +311,24 @@ export function ConnectAccountModal({ open, onClose }: ConnectAccountModalProps)
               autoComplete="new-password"
               required
               disabled={busy}
+            />
+          </div>
+        ) : null}
+        {mode === "cookies" ? (
+          <div className="form-group">
+            <label className="form-label" htmlFor="li-session-cookies">
+              Session cookies
+            </label>
+            <textarea
+              id="li-session-cookies"
+              name="session_cookies"
+              className="form-input"
+              rows={5}
+              required
+              disabled={busy}
+              placeholder="Paste li_at or JSON cookie export"
+              spellCheck={false}
+              autoComplete="off"
             />
           </div>
         ) : null}

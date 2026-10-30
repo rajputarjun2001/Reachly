@@ -136,6 +136,45 @@ describe("POST /api/accounts", () => {
   });
 });
 
+describe("POST /api/accounts/connect/session", () => {
+  it("stores encrypted cookies after verifying a pasted session", async () => {
+    const fx = await createWorkspaceFixture();
+    const res = await request(app)
+      .post("/api/accounts/connect/session")
+      .set(fx.auth)
+      .send({
+        linkedinEmail: "session@li.com",
+        sessionCookies: "AQEDAS1234567890abcdefghijklmnop",
+        label: "Imported",
+        dailyLimit: 6,
+      });
+    expect(res.status).toBe(201);
+    expect(res.body.data).toMatchObject({
+      status: "active",
+      linkedinEmail: "session@li.com",
+      label: "Imported",
+      dailyLimit: 6,
+    });
+    expect(loginToLinkedIn).not.toHaveBeenCalled();
+    expect(verifyCookies).toHaveBeenCalled();
+    const stored = await LinkedInAccount.findById(res.body.data._id).select("+sessionCookies +linkedinPasswordEncrypted");
+    expect(stored?.linkedinPasswordEncrypted).toBeUndefined();
+    const cookies = decryptJSON<{ name: string; value: string }[]>(stored!.sessionCookies!);
+    expect(cookies.some((c) => c.name === "li_at" && c.value === "AQEDAS1234567890abcdefghijklmnop")).toBe(true);
+  });
+
+  it("rejects invalid cookies with 422", async () => {
+    const fx = await createWorkspaceFixture();
+    verifyCookies.mockResolvedValueOnce({ valid: false });
+    const res = await request(app)
+      .post("/api/accounts/connect/session")
+      .set(fx.auth)
+      .send({ linkedinEmail: "bad@li.com", sessionCookies: "AQEDAS1234567890abcdefghijklmnop" });
+    expect(res.status).toBe(422);
+    expect(res.body.error).toBe(accountsDomain.INVALID_SESSION_COOKIES);
+  });
+});
+
 describe("account read endpoints", () => {
   it("lists accounts for the workspace and reports status", async () => {
     const fx = await createWorkspaceFixture();
@@ -208,6 +247,25 @@ describe("reconnect and delete", () => {
     const fx = await createWorkspaceFixture();
     const account = await createAccount(fx.workspace._id, { linkedinPasswordEncrypted: undefined });
     expect((await request(app).post(`/api/accounts/${account._id}/reconnect`).set(fx.auth).send({})).status).toBe(400);
+  });
+
+  it("reconnect accepts pasted session cookies without a stored password", async () => {
+    const fx = await createWorkspaceFixture();
+    const account = await createAccount(fx.workspace._id, {
+      linkedinPasswordEncrypted: undefined,
+      status: "disconnected",
+    });
+    const res = await request(app)
+      .post(`/api/accounts/${account._id}/reconnect`)
+      .set(fx.auth)
+      .send({ sessionCookies: "AQEDAS1234567890abcdefghijklmnop" });
+    expect(res.status).toBe(200);
+    expect(res.body.data.status).toBe("active");
+    expect(verifyCookies).toHaveBeenCalled();
+    expect(loginToLinkedIn).not.toHaveBeenCalled();
+    const stored = await LinkedInAccount.findById(account._id).select("+sessionCookies");
+    const cookies = decryptJSON<{ name: string; value: string }[]>(stored!.sessionCookies!);
+    expect(cookies.some((c) => c.name === "li_at" && c.value === "AQEDAS1234567890abcdefghijklmnop")).toBe(true);
   });
 
   it("delete pauses campaigns, removes the inbox poll and the account", async () => {

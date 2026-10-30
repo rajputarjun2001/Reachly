@@ -11,6 +11,7 @@ import {
   removeAccountAction,
   updateAccountAction,
 } from "@/app/(app)/accounts/actions";
+import { RefreshSessionModal } from "@/components/accounts/refresh-session-modal";
 
 type AccountsLiveViewProps = {
   accounts: LinkedInAccountView[];
@@ -34,6 +35,7 @@ function AccountCard({ account, dailyCap }: { account: LinkedInAccountView; dail
   const router = useRouter();
   const [message, setMessage] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
+  const [refreshSessionOpen, setRefreshSessionOpen] = useState(false);
   const [pending, startTransition] = useTransition();
   const badge = STATUS_BADGE[account.status];
   const used = Math.min(100, Math.round((account.today_sent_count / Math.max(1, account.daily_limit)) * 100));
@@ -52,8 +54,10 @@ function AccountCard({ account, dailyCap }: { account: LinkedInAccountView; dail
       "",
     );
     if (password === null) return;
-    run(() => reconnectAccountAction(account.id, password || undefined));
+    run(() => reconnectAccountAction(account.id, { password: password || undefined }));
   };
+
+  const openSessionRefresh = () => setRefreshSessionOpen(true);
 
   const check = () => {
     startTransition(async () => {
@@ -81,7 +85,8 @@ function AccountCard({ account, dailyCap }: { account: LinkedInAccountView; dail
         }
       >
         <div className="dd-item" role="button" tabIndex={0} onClick={() => setEditing(true)}>⚙️ Settings</div>
-        <div className="dd-item" role="button" tabIndex={0} onClick={reconnect}>🔄 Reconnect</div>
+        <div className="dd-item" role="button" tabIndex={0} onClick={reconnect}>🔄 Reconnect (password)</div>
+        <div className="dd-item" role="button" tabIndex={0} onClick={openSessionRefresh}>🍪 Update session cookies</div>
         <div className="dd-item" role="button" tabIndex={0} onClick={check}>🩺 Check session</div>
         <div className="dd-sep" />
         <div className="dd-item danger" role="button" tabIndex={0} onClick={remove}>🔌 Remove</div>
@@ -101,7 +106,7 @@ function AccountCard({ account, dailyCap }: { account: LinkedInAccountView; dail
       </div>
       {account.flag_reason ? (
         <p className="form-hint" style={{ color: "var(--red)" }}>
-          LinkedIn asked for verification. Log in manually in a browser, then reconnect.
+          LinkedIn asked for verification. Paste fresh session cookies or reconnect with your password.
         </p>
       ) : null}
       {editing ? (
@@ -154,6 +159,12 @@ function AccountCard({ account, dailyCap }: { account: LinkedInAccountView; dail
       </div>
       {message ? <p className="form-hint" role="status">{message}</p> : null}
       {pending ? <p className="form-hint">Working… LinkedIn actions can take up to a minute.</p> : null}
+      <RefreshSessionModal
+        open={refreshSessionOpen}
+        accountId={account.id}
+        accountName={account.display_name}
+        onClose={() => setRefreshSessionOpen(false)}
+      />
     </div>
   );
 }

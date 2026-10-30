@@ -47,9 +47,6 @@ export async function middleware(request: NextRequest) {
   if (!session.workspaceId && matches(pathname, PROTECTED_PREFIXES) && pathname !== "/workspace/setup") {
     return redirectTo(request, "/workspace/setup");
   }
-  if (session.workspaceId && pathname === "/workspace/setup") {
-    return redirectTo(request, "/dashboard");
-  }
   return NextResponse.next();
 }
 
