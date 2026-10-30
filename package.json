@@ -7,7 +7,7 @@
   },
   "scripts": {
     "dev": "tsx watch --clear-screen=false --exclude \"./src/**\" --exclude \"./.next/**\" server.ts",
-    "build": "next build && tsc -p tsconfig.server.json",
+    "build": "next build && tsc -p tsconfig.server.json && npm run browsers:install",
     "start": "cross-env NODE_ENV=production node dist/server.js",
     "lint": "next lint",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.server.json --noEmit",

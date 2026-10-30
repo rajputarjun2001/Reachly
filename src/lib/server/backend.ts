@@ -13,7 +13,7 @@ export function actionErrorMessage(err: unknown, fallback = "Something went wron
   const { status, message } = describeError(err);
   if (status >= 500) {
     console.error("[action]", err);
-    return status === 503 || status === 502 ? message : fallback;
+    return fallback;
   }
   return message;
 }

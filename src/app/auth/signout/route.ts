@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { SESSION_COOKIE } from "@server/auth/token";
 
-function signOut(request: Request) {
-  const response = NextResponse.redirect(new URL("/login", request.url), { status: 303 });
+function signOut(_request: Request) {
+  // Relative URL so the browser stays on the public origin (request.url is often localhost behind a proxy).
+  const response = NextResponse.redirect("/login", { status: 303 });
   response.cookies.delete(SESSION_COOKIE);
   return response;
 }

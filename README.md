@@ -51,7 +51,7 @@ Without `MONGO_URI`, `JWT_SECRET`, and `ENCRYPTION_KEY`, the UI runs in **demo /
 | Command | Description |
 |---------|-------------|
 | `npm run dev` | Custom server: Next.js + `/api` + workers |
-| `npm run build` | Next.js production build + compile `server.ts` |
+| `npm run build` | Next.js production build, compile `server.ts`, install Playwright Chromium |
 | `npm run start` | Production server (`dist/server.js`) |
 | `npm run lint` | ESLint |
 | `npm run typecheck` | `tsc --noEmit` for the app and the server |

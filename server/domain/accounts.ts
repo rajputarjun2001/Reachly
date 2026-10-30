@@ -13,6 +13,7 @@ import { oid, type AuthContext } from "./context";
 
 const { ERRORS } = linkedinActions;
 export const CHALLENGE_MESSAGE = "LinkedIn requires verification. Please log in manually and try again.";
+export const CONNECT_LOGIN_FAILED = "Could not connect the LinkedIn account. Please try again later.";
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export async function workspaceDailyCap(workspaceId: string): Promise<number> {
@@ -48,7 +49,7 @@ async function ensureBrowserContainer(account: LinkedInAccountDoc) {
   } catch (err) {
     account.status = "disconnected";
     await account.save();
-    throw new AppError(503, `Could not start browser container: ${(err as Error).message}`);
+    throw new AppError(503, CONNECT_LOGIN_FAILED);
   }
 }
 
@@ -97,13 +98,8 @@ async function connectSession(account: LinkedInAccountDoc, password: string) {
     if (message === ERRORS.INVALID_CREDENTIALS) {
       throw unprocessable("LinkedIn rejected the email or password", ERRORS.INVALID_CREDENTIALS);
     }
-    if (message.startsWith("LOGIN_FORM_NOT_FOUND") || message === "LOGIN_PAGE_LOAD_FAILED") {
-      throw new AppError(
-        502,
-        "Could not load the LinkedIn sign-in page (timeout or blocked). Ensure Chromium is installed (`npm run browsers:install`), try again, or set LINKEDIN_HEADLESS=false to debug.",
-      );
-    }
-    throw new AppError(502, `LinkedIn login failed: ${message}`);
+    console.error("[accounts] LinkedIn login failed:", message);
+    throw new AppError(502, CONNECT_LOGIN_FAILED);
   }
 
   await persistSession(account, cookies, "connect_password");
@@ -233,7 +229,8 @@ export async function startBrowserConnect(
     if (message === "BROWSER_CONNECT_IN_PROGRESS") {
       throw conflict("A browser sign-in is already in progress for this workspace. Finish or cancel it first.");
     }
-    throw new AppError(502, `Could not open the LinkedIn browser: ${message}`);
+    console.error("[accounts] browser connect failed:", message);
+    throw new AppError(502, CONNECT_LOGIN_FAILED);
   }
 }
 

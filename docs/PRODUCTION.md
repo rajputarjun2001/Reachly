@@ -19,7 +19,7 @@ Billing, integrations, and safety panels in Settings remain **preview-only** UI.
 
 1. Provision **MongoDB** and **Redis** (managed or self-hosted).
 2. Set env from `.env.example` (secrets via your secret manager).
-3. `npm ci && npm run build && npm run browsers:install`
+3. `npm ci && npm run build` (the build script runs `npm run browsers:install` for Playwright Chromium)
 4. `NODE_ENV=production npm run start` (or run `dist/server.js` under a process manager).
 5. Point load balancer health checks at `GET /api/health` (expect `200` when Mongo + Redis are up).
 
@@ -34,6 +34,19 @@ Billing, integrations, and safety panels in Settings remain **preview-only** UI.
 ## LinkedIn automation risks
 
 Playwright against LinkedIn violates their ToS if used for bulk automation. Operate within your legal/compliance constraints; use conservative daily limits and monitor `flagged` account status.
+
+## Render (and similar PaaS)
+
+Use a **Web Service** with enough RAM for Chromium (recommend **≥ 1 GB**; 512 MB often OOMs on launch).
+
+| Setting | Value |
+|---------|--------|
+| Build command | `npm ci && npm run build` |
+| Start command | `npm run start` |
+
+If the build log never shows Playwright downloading Chromium, LinkedIn connect will fail with a missing executable under `/opt/render/.cache/ms-playwright/`. Do **not** set `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1`.
+
+On Linux hosts, if Chromium downloads but fails to start with missing shared libraries, run `npx playwright install-deps chromium` in the build step (requires a image/OS that allows it) or deploy with `DOCKER_ENABLED=true` and Docker available on the host.
 
 ## Verify locally
 

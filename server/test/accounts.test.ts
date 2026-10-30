@@ -101,7 +101,16 @@ describe("POST /api/accounts", () => {
     loginToLinkedIn.mockRejectedValueOnce(new Error("net::ERR_TIMED_OUT"));
     const boom = await connect(fx.auth, { linkedinEmail: "n@li.com", linkedinPassword: "pw" });
     expect(boom.status).toBe(502);
-    expect(boom.body.error).toMatch(/ERR_TIMED_OUT/);
+    expect(boom.body.error).toBe(accountsDomain.CONNECT_LOGIN_FAILED);
+
+    loginToLinkedIn.mockRejectedValueOnce(
+      new Error(
+        "browserType.launch: Executable doesn't exist at /opt/render/.cache/ms-playwright/chromium_headless_shell-1248/chrome-headless-shell-linux64/chrome-headless-shell",
+      ),
+    );
+    const missingBrowser = await connect(fx.auth, { linkedinEmail: "b@li.com", linkedinPassword: "pw" });
+    expect(missingBrowser.status).toBe(502);
+    expect(missingBrowser.body.error).toBe(accountsDomain.CONNECT_LOGIN_FAILED);
   });
 
   it("validates body, daily limit cap, and duplicates", async () => {
