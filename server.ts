@@ -66,6 +66,7 @@ async function main() {
           "[reachly] Workers failed to start (check REDIS_HOST, REDIS_PORT, REDIS_PASSWORD or set WORKERS_ENABLED=false):",
           message,
         );
+        if (env.isProduction) process.exit(1);
       }
     })();
   }

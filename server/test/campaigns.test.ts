@@ -309,24 +309,17 @@ describe("cancel / archive / transition", () => {
     await expect(campaignsDomain.transitionCampaign(s.ctx, id, "completed")).rejects.toMatchObject({ status: 400 });
   });
 
-  it("sendConnectionNow queues an immediate job and resets skipped leads", async () => {
+  it("sendConnectionNow sends immediately and resets skipped leads", async () => {
     const s = await setup();
     const active = await createCampaign(s.workspace._id, s.account._id, s.list._id, { status: "active" });
     const lead = await Lead.findOne({ listId: s.list._id });
     expect(lead).toBeTruthy();
     await Lead.updateOne({ _id: lead!._id }, { status: "skipped", skipReason: "send_failed:SESSION_EXPIRED" });
 
-    queues().connectionQueue.add.mockClear();
     await campaignsDomain.sendConnectionNow(s.ctx, String(active._id), String(lead!._id));
 
-    expect(queues().connectionQueue.add).toHaveBeenCalledTimes(1);
-    const [name, , opts] = queues().connectionQueue.add.mock.calls[0];
-    expect(name).toBe("send-connection");
-    expect(opts).toMatchObject({ delay: 0, attempts: 2 });
-    expect(String(opts?.jobId)).toMatch(/^conn-now-/);
-
     const updated = await Lead.findById(lead!._id);
-    expect(updated?.status).toBe("pending");
+    expect(updated?.status).toBe("connection_sent");
     expect(updated?.skipReason).toBeFalsy();
   });
 });

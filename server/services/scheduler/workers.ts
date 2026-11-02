@@ -5,6 +5,11 @@ import { createInboxWorker } from "./inboxProcessor";
 import { createMaintenanceWorker, registerRepeatableJobs } from "./maintenanceProcessor";
 
 let workers: Worker[] = [];
+let workersReady = false;
+
+export function areWorkersRunning(): boolean {
+  return workersReady;
+}
 
 export async function startWorkers(): Promise<Worker[]> {
   workers = [createConnectionWorker(), createMessageWorker(), createInboxWorker(), createMaintenanceWorker()];
@@ -15,10 +20,12 @@ export async function startWorkers(): Promise<Worker[]> {
     w.on("error", (err) => console.error(`[worker:${w.name}]`, err.message));
   }
   await registerRepeatableJobs();
+  workersReady = true;
   return workers;
 }
 
 export async function stopWorkers(): Promise<void> {
   await Promise.all(workers.map((w) => w.close()));
   workers = [];
+  workersReady = false;
 }

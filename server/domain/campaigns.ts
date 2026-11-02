@@ -11,7 +11,8 @@ import { AppError, badRequest, conflict, notFound, unprocessable } from "../util
 import { escapeRegex } from "../utils/helpers";
 import { isValidTimezone } from "../utils/schedule";
 import { ensureInboxPoll, scheduleDailyConnections, scheduleDueMessages } from "../services/scheduler/dailyScheduler";
-import { getQueues } from "../services/scheduler/queues";
+import { processConnectionJob } from "../services/scheduler/connectionProcessor";
+import type { ConnectionJobData, JobLike } from "../services/scheduler/jobTypes";
 import { oid, type AuthContext } from "./context";
 
 export type MessageStepInput = { step: number; delayDays: number; body: string; label?: string | null };
@@ -344,24 +345,33 @@ export async function sendConnectionNow(ctx: AuthContext, campaignId: string, le
     await campaign.save();
   }
 
+  const job: JobLike<ConnectionJobData> = {
+    name: "send-connection",
+    data: {
+      leadId: String(lead._id),
+      campaignId: String(campaign._id),
+      accountId: String(account._id),
+    },
+    opts: { attempts: 2 },
+    attemptsMade: 0,
+  };
+
   try {
-    await getQueues().connectionQueue.add(
-      "send-connection",
-      {
-        leadId: String(lead._id),
-        campaignId: String(campaign._id),
-        accountId: String(account._id),
-      },
-      {
-        jobId: `conn-now-${lead._id}-${Date.now()}`,
-        delay: 0,
-        attempts: 2,
-        backoff: { type: "exponential", delay: 5000 },
-      },
-    );
+    await processConnectionJob(job);
   } catch (err) {
-    throw schedulingError(err);
+    const leadAfter = await Lead.findById(lead._id);
+    if (leadAfter?.status === "skipped" && leadAfter.skipReason) {
+      throw unprocessable(`Send failed: ${leadAfter.skipReason}`);
+    }
+    throw unprocessable((err as Error).message || "Connection request failed");
   }
 
-  return { campaign, leadId: String(lead._id) };
+  const leadAfter = await Lead.findById(lead._id);
+  if (leadAfter?.status === "connection_sent" || leadAfter?.status === "connected") {
+    return { campaign, leadId: String(lead._id), sent: true };
+  }
+  if (leadAfter?.status === "skipped" || leadAfter?.status === "blacklisted") {
+    throw unprocessable(leadAfter.skipReason ? `Send failed: ${leadAfter.skipReason}` : "Send failed");
+  }
+  throw unprocessable("Connection request did not complete — check LinkedIn account session and server logs.");
 }

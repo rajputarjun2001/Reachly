@@ -4,6 +4,7 @@ import cors from "cors";
 import mongoose from "mongoose";
 import { env, getBackendConfigError, isBackendConfigured } from "./config/env";
 import { pingRedis } from "./config/redis";
+import { areWorkersRunning } from "./services/scheduler/workers";
 import { authenticate } from "./middleware/auth";
 import { errorHandler, notFoundHandler } from "./middleware/errorHandler";
 import { authRouter } from "./routes/auth";
@@ -27,6 +28,7 @@ export function createApiApp(): Express {
     const configError = getBackendConfigError();
     const mongoOk = configured && mongoose.connection.readyState === 1;
     const redisOk = configured && env.workersEnabled ? await pingRedis() : configured ? true : false;
+    const workersOk = !configured || !env.workersEnabled || areWorkersRunning();
     const ok = !configured || (mongoOk && redisOk);
     res.status(ok ? 200 : 503).json({
       data: {
@@ -36,6 +38,13 @@ export function createApiApp(): Express {
         mongo: configured ? (mongoOk ? "up" : "down") : "skipped",
         redis: configured ? (env.workersEnabled ? (redisOk ? "up" : "down") : "workers_disabled") : "skipped",
         workersEnabled: env.workersEnabled,
+        workers: configured
+          ? env.workersEnabled
+            ? workersOk
+              ? "running"
+              : "not_started"
+            : "disabled"
+          : "skipped",
         configError,
       },
       message: ok ? "OK" : "Service degraded",

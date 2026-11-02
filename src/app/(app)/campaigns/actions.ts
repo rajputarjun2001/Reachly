@@ -225,9 +225,7 @@ export async function sendConnectionNowAction(
   try {
     await sendConnectionNow(campaignId, leadId);
     revalidateCampaign(campaignId);
-    return {
-      success: "Connection request queued. Refresh in a few seconds to see the updated lead status.",
-    };
+    return { success: "Connection request sent. Check LinkedIn or refresh for updated stats." };
   } catch (err) {
     return { error: actionErrorMessage(err) };
   }

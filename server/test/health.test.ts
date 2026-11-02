@@ -20,6 +20,7 @@ describe("GET /api/health", () => {
       mongo: "up",
       redis: "up",
       workersEnabled: true,
+      workers: "not_started",
     });
     expect(res.body.data.configError).toBeNull();
   });
