@@ -208,3 +208,8 @@ export async function deleteCampaign(campaignId: string): Promise<void> {
   const ctx = await scoped();
   await campaignsDomain.deleteCampaign(ctx, campaignId);
 }
+
+export async function sendConnectionNow(campaignId: string, leadId: string): Promise<void> {
+  const ctx = await scoped();
+  await campaignsDomain.sendConnectionNow(ctx, campaignId, leadId);
+}

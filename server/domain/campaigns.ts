@@ -11,6 +11,7 @@ import { AppError, badRequest, conflict, notFound, unprocessable } from "../util
 import { escapeRegex } from "../utils/helpers";
 import { isValidTimezone } from "../utils/schedule";
 import { ensureInboxPoll, scheduleDailyConnections, scheduleDueMessages } from "../services/scheduler/dailyScheduler";
+import { getQueues } from "../services/scheduler/queues";
 import { oid, type AuthContext } from "./context";
 
 export type MessageStepInput = { step: number; delayDays: number; body: string; label?: string | null };
@@ -304,4 +305,63 @@ export async function deleteCampaign(ctx: AuthContext, id: string) {
   if (campaign.status === "active") throw conflict("Pause the campaign before deleting it");
   await campaign.deleteOne();
   return { id: String(campaign._id) };
+}
+
+const SENDABLE_LEAD_STATUSES = new Set(["pending", "skipped"]);
+
+/** Queues an immediate connection job (for testing). Reactivates paused/completed campaigns. */
+export async function sendConnectionNow(ctx: AuthContext, campaignId: string, leadId: string) {
+  const campaign = await findCampaign(ctx, campaignId);
+  if (campaign.status === "draft" || campaign.status === "archived") {
+    throw conflict(`Cannot send from a ${campaign.status} campaign.`);
+  }
+  if (!campaign.leadListId || !campaign.linkedinAccountId) {
+    throw unprocessable("Campaign needs a lead list and LinkedIn account.");
+  }
+
+  const lead = await Lead.findOne({
+    _id: oid(leadId, "lead id"),
+    listId: campaign.leadListId,
+    workspaceId: ctx.workspaceId,
+  });
+  if (!lead) throw notFound("Lead not found in this campaign's list");
+  if (!SENDABLE_LEAD_STATUSES.has(lead.status)) {
+    throw conflict(`Lead is ${lead.status}; only pending or skipped leads can be sent now.`);
+  }
+
+  const account = await assertAccountActive(ctx, campaign, "sending");
+
+  if (lead.status === "skipped") {
+    lead.status = "pending";
+    lead.set("skipReason", undefined);
+    await lead.save();
+  }
+
+  if (campaign.status !== "active") {
+    campaign.status = "active";
+    campaign.pausedReason = undefined;
+    campaign.completedAt = undefined;
+    await campaign.save();
+  }
+
+  try {
+    await getQueues().connectionQueue.add(
+      "send-connection",
+      {
+        leadId: String(lead._id),
+        campaignId: String(campaign._id),
+        accountId: String(account._id),
+      },
+      {
+        jobId: `conn-now-${lead._id}-${Date.now()}`,
+        delay: 0,
+        attempts: 2,
+        backoff: { type: "exponential", delay: 5000 },
+      },
+    );
+  } catch (err) {
+    throw schedulingError(err);
+  }
+
+  return { campaign, leadId: String(lead._id) };
 }

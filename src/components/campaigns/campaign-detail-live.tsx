@@ -6,12 +6,14 @@ import { useState, useTransition } from "react";
 import type { CampaignWithSteps } from "@/lib/campaigns/types";
 import type { AccountOption } from "@/lib/accounts/types";
 import type { LeadStatus } from "@/lib/leads/types";
+import { formatSkipReason } from "@/lib/leads/skip-reason";
 import { appRoutes } from "@/lib/routes";
 import {
   cancelCampaignAction,
   pauseCampaignAction,
   resumeCampaignAction,
   saveCampaignStepsAction,
+  sendConnectionNowAction,
   startCampaignAction,
   updateCampaignAccountAction,
   updateCampaignStatusAction,
@@ -19,7 +21,14 @@ import {
 
 type CampaignDetailLiveProps = {
   campaign: CampaignWithSteps;
-  leadsPreview: { id: string; name: string; company: string | null; job_title: string | null; status: LeadStatus }[];
+  leadsPreview: {
+    id: string;
+    name: string;
+    company: string | null;
+    job_title: string | null;
+    status: LeadStatus;
+    skip_reason: string | null;
+  }[];
   accounts: AccountOption[];
 };
 
@@ -55,6 +64,14 @@ function pct(part: number, whole: number) {
   return whole > 0 ? Math.round((part / whole) * 100) : 0;
 }
 
+function canSendConnectionNow(status: LeadStatus) {
+  return status === "pending" || status === "skipped";
+}
+
+function campaignAllowsSendNow(status: CampaignWithSteps["status"]) {
+  return status !== "draft" && status !== "archived";
+}
+
 export function CampaignDetailLive({ campaign, leadsPreview, accounts }: CampaignDetailLiveProps) {
   const router = useRouter();
   const [steps, setSteps] = useState(campaign.steps);
@@ -70,6 +87,7 @@ export function CampaignDetailLive({ campaign, leadsPreview, accounts }: Campaig
   const canResume = campaign.status === "paused";
   const canCancel = campaign.status === "active" || campaign.status === "paused";
   const canArchive = campaign.status !== "archived" && campaign.status !== "active";
+  const showSendNow = campaignAllowsSendNow(campaign.status);
 
   const run = (fn: () => Promise<{ error?: string; success?: string }>) => {
     startTransition(async () => {
@@ -277,12 +295,12 @@ export function CampaignDetailLive({ campaign, leadsPreview, accounts }: Campaig
           <div className="table-wrap">
             <table>
               <thead>
-                <tr><th>Name</th><th>Company</th><th>Title</th><th>Status</th></tr>
+                <tr><th>Name</th><th>Company</th><th>Title</th><th>Status</th>{showSendNow ? <th>Test</th> : null}</tr>
               </thead>
               <tbody>
                 {leadsPreview.length === 0 ? (
                   <tr>
-                    <td colSpan={4} className="color-muted text-sm">No leads in the linked list yet.</td>
+                    <td colSpan={showSendNow ? 5 : 4} className="color-muted text-sm">No leads in the linked list yet.</td>
                   </tr>
                 ) : (
                   leadsPreview.map((lead) => (
@@ -291,8 +309,40 @@ export function CampaignDetailLive({ campaign, leadsPreview, accounts }: Campaig
                       <td>{lead.company ?? "—"}</td>
                       <td>{lead.job_title ?? "—"}</td>
                       <td>
-                        <span className="badge badge-gray">{lead.status.replace(/_/g, " ")}</span>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "flex-start" }}>
+                          <span
+                            className={
+                              lead.status === "skipped" || lead.status === "blacklisted"
+                                ? "badge badge-red"
+                                : "badge badge-gray"
+                            }
+                          >
+                            {lead.status.replace(/_/g, " ")}
+                          </span>
+                          {(lead.status === "skipped" || lead.status === "blacklisted") &&
+                          formatSkipReason(lead.skip_reason) ? (
+                            <span className="text-xs color-muted" title={lead.skip_reason ?? undefined}>
+                              {formatSkipReason(lead.skip_reason)}
+                            </span>
+                          ) : null}
+                        </div>
                       </td>
+                      {showSendNow ? (
+                        <td>
+                          {canSendConnectionNow(lead.status) ? (
+                            <button
+                              type="button"
+                              className="btn btn-outline btn-sm"
+                              disabled={pending}
+                              onClick={() => run(() => sendConnectionNowAction(campaign.id, lead.id))}
+                            >
+                              Send now
+                            </button>
+                          ) : (
+                            <span className="text-xs color-muted">—</span>
+                          )}
+                        </td>
+                      ) : null}
                     </tr>
                   ))
                 )}

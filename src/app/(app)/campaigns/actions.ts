@@ -8,6 +8,7 @@ import {
   replaceCampaignSteps,
   transitionCampaign,
   updateCampaign,
+  sendConnectionNow,
 } from "@/lib/campaigns/repository";
 import { DEFAULT_CAMPAIGN_STEPS } from "@/lib/campaigns/constants";
 import type { CampaignSettings } from "@/lib/campaigns/types";
@@ -211,6 +212,22 @@ export async function deleteCampaignAction(campaignId: string): Promise<Campaign
     await deleteCampaign(campaignId);
     revalidateCampaign();
     return { success: "Campaign deleted." };
+  } catch (err) {
+    return { error: actionErrorMessage(err) };
+  }
+}
+
+export async function sendConnectionNowAction(
+  campaignId: string,
+  leadId: string,
+): Promise<CampaignActionResult> {
+  if (!isBackendConfigured()) return NOT_CONFIGURED;
+  try {
+    await sendConnectionNow(campaignId, leadId);
+    revalidateCampaign(campaignId);
+    return {
+      success: "Connection request queued. Refresh in a few seconds to see the updated lead status.",
+    };
   } catch (err) {
     return { error: actionErrorMessage(err) };
   }

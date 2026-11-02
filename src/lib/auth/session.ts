@@ -13,6 +13,15 @@ import { User } from "@server/models";
 import { isBackendConfigured } from "@/lib/env";
 import { ensureDb } from "@/lib/server/backend";
 
+/** Secure cookies require HTTPS; plain HTTP deploys (e.g. GCP without TLS) must not set Secure. */
+function sessionCookieSecure(): boolean {
+  const override = process.env.COOKIE_SECURE?.trim().toLowerCase();
+  if (override === "true") return true;
+  if (override === "false") return false;
+  const site = (process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000").replace(/\/$/, "");
+  return site.startsWith("https://");
+}
+
 export const getSession = cache(async (): Promise<SessionClaims | null> => {
   if (!isBackendConfigured()) return null;
   const store = await cookies();
@@ -24,7 +33,7 @@ export async function setSessionCookie(token: string) {
   store.set(SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    secure: sessionCookieSecure(),
     path: "/",
     maxAge: SESSION_MAX_AGE_SECONDS,
   });

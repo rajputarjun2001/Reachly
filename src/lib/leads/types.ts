@@ -32,6 +32,8 @@ export type LeadRow = {
   linkedin_url: string | null;
   source: string;
   status: LeadStatus;
+  /** Set when status is skipped (or some failure paths); automation detail from the worker. */
+  skip_reason: string | null;
   created_at: string;
   updated_at: string;
 };

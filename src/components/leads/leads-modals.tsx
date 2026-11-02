@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { ModalShell } from "@/components/modals/modal-shell";
 import type { LeadListSummary, LeadRow } from "@/lib/leads/types";
+import { formatSkipReason } from "@/lib/leads/skip-reason";
 import { LEADS_PAGE_SIZE } from "@/lib/leads/constants";
 import {
   deleteLeadAction,
@@ -326,7 +327,17 @@ export function LeadDetailModal({ list, open, onClose, onListChanged }: LeadDeta
                   <td className="td-main">{leadDisplayName(lead)}</td>
                   <td>{lead.company ?? "—"}</td>
                   <td>{lead.job_title ?? "—"}</td>
-                  <td><span className={leadStatusBadge(lead.status)}>{lead.status.replace(/_/g, " ")}</span></td>
+                  <td>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "flex-start" }}>
+                      <span className={leadStatusBadge(lead.status)}>{lead.status.replace(/_/g, " ")}</span>
+                      {(lead.status === "skipped" || lead.status === "blacklisted") &&
+                      formatSkipReason(lead.skip_reason) ? (
+                        <span className="text-xs color-muted" title={lead.skip_reason ?? undefined}>
+                          {formatSkipReason(lead.skip_reason)}
+                        </span>
+                      ) : null}
+                    </div>
+                  </td>
                   <td>
                     {lead.linkedin_url ? (
                       <a

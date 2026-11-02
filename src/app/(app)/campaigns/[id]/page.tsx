@@ -37,6 +37,7 @@ export default async function CampaignDetailPage({ params }: Props) {
     company: string | null;
     job_title: string | null;
     status: LeadStatus;
+    skip_reason: string | null;
   }[] = [];
   if (campaign.lead_list_id) {
     try {
@@ -47,6 +48,7 @@ export default async function CampaignDetailPage({ params }: Props) {
         company: l.company,
         job_title: l.job_title,
         status: l.status,
+        skip_reason: l.skip_reason,
       }));
     } catch {
       leadsPreview = [];

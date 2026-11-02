@@ -39,6 +39,7 @@ export function mapLead(lead: LeadDoc): LeadRow {
     linkedin_url: lead.linkedinUrl ?? null,
     source: lead.source ?? "csv_import",
     status: (lead.status ?? "pending") as LeadStatus,
+    skip_reason: lead.skipReason ?? null,
     created_at: iso(lead.get("createdAt")),
     updated_at: iso(lead.get("updatedAt")),
   };
