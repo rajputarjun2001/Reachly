@@ -3,6 +3,36 @@ import { badRequest } from "./errors";
 
 const LINKEDIN_DOMAIN = ".linkedin.com";
 
+const PASTE_COOKIES_HINT =
+  "Paste li_at=…; JSESSIONID=… pairs, or export the full cookie list from DevTools (Application → Cookies → .linkedin.com). A bare li_at value alone is not enough.";
+
+function isLinkedInCookieDomain(domain: string | undefined): boolean {
+  const d = String(domain ?? LINKEDIN_DOMAIN)
+    .trim()
+    .toLowerCase();
+  return d.includes("linkedin.com");
+}
+
+/** Normalizes domains and drops non-LinkedIn cookies before Playwright addCookies / storage. */
+export function normalizeLinkedInCookiesForPlaywright(cookies: SessionCookie[]): SessionCookie[] {
+  return cookies
+    .filter((c) => Boolean(c.name && c.value) && isLinkedInCookieDomain(c.domain))
+    .map((c) => {
+      const path = String(c.path ?? "/").trim() || "/";
+      const domain = isLinkedInCookieDomain(c.domain) ? LINKEDIN_DOMAIN : String(c.domain ?? LINKEDIN_DOMAIN);
+      return { ...c, domain, path };
+    });
+}
+
+function assertRequiredSessionCookies(cookies: SessionCookie[]) {
+  if (!cookies.some((c) => c.name === "li_at" && c.value)) {
+    throw badRequest("LinkedIn session cookies must include li_at.");
+  }
+  if (!cookies.some((c) => c.name === "JSESSIONID" && c.value)) {
+    throw badRequest(`LinkedIn session cookies must include JSESSIONID. ${PASTE_COOKIES_HINT}`);
+  }
+}
+
 function linkedInCookie(name: string, value: string): SessionCookie {
   return {
     name,
@@ -42,10 +72,8 @@ function normalizeCookieArray(items: unknown[]): SessionCookie[] {
   if (!cookies.length) {
     throw badRequest("Could not read any cookies from that JSON. Each entry needs a name and value.");
   }
-  if (!cookies.some((c) => c.name === "li_at" && c.value)) {
-    throw badRequest("LinkedIn session cookies must include li_at.");
-  }
-  return cookies;
+  assertRequiredSessionCookies(cookies);
+  return normalizeLinkedInCookiesForPlaywright(cookies);
 }
 
 function parseJsonCookies(text: string): SessionCookie[] {
@@ -53,7 +81,7 @@ function parseJsonCookies(text: string): SessionCookie[] {
   try {
     parsed = JSON.parse(text);
   } catch {
-    throw badRequest("Invalid JSON. Paste li_at or a cookie array exported from DevTools.");
+    throw badRequest(`Invalid JSON. ${PASTE_COOKIES_HINT}`);
   }
   if (Array.isArray(parsed)) return normalizeCookieArray(parsed);
   const root = asRecord(parsed);
@@ -95,10 +123,8 @@ export function parseLinkedInSessionCookies(raw: unknown): SessionCookie[] {
   if (pairs) return pairs;
 
   if (!/\s/.test(text) && text.length >= 20) {
-    return normalizeCookieArray([linkedInCookie("li_at", text)]);
+    throw badRequest(`A bare li_at token is not supported. ${PASTE_COOKIES_HINT}`);
   }
 
-  throw badRequest(
-    "Paste your li_at cookie value, li_at=… pairs, or a JSON cookie export from DevTools (Application → Cookies → linkedin.com).",
-  );
+  throw badRequest(PASTE_COOKIES_HINT);
 }

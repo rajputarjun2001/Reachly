@@ -6,7 +6,10 @@ import type { InboxConversation, SessionCookie } from "../services/playwright/li
 vi.mock("playwright", () => ({ chromium: { launch: vi.fn(), connect: vi.fn() } }));
 
 const { SELECTORS: S } = li;
-const COOKIE = [{ name: "a" }] as unknown as SessionCookie[];
+const COOKIE = [
+  { name: "li_at", value: "v", domain: ".linkedin.com", path: "/" },
+  { name: "JSESSIONID", value: "j", domain: ".linkedin.com", path: "/" },
+] as unknown as SessionCookie[];
 
 type Elements = Record<string, { text?: string }>;
 type FakePage = { url?: string; elements?: Elements; body?: string };
@@ -92,7 +95,10 @@ function fakeBrowser({ pages = {}, afterLoginUrl, onClick = {} }: FakeOptions = 
   const context = {
     addInitScript: vi.fn(async () => undefined),
     addCookies: vi.fn(async () => undefined),
-    cookies: vi.fn(async () => [{ name: "li_at", value: "v" }]),
+    cookies: vi.fn(async () => [
+      { name: "li_at", value: "v", domain: ".linkedin.com", path: "/" },
+      { name: "JSESSIONID", value: "j", domain: ".linkedin.com", path: "/" },
+    ]),
     newPage: vi.fn(async () => page),
   };
   const browser = { newContext: vi.fn(async () => context), close: vi.fn(async () => undefined) };
@@ -151,7 +157,10 @@ describe("loginToLinkedIn", () => {
   it("returns cookies when landing on /feed", async () => {
     const { actions, browser } = fakeBrowser({ afterLoginUrl: "https://www.linkedin.com/feed/" });
     const cookies = await li.loginToLinkedIn("me@x.com", "pw");
-    expect(cookies).toEqual([{ name: "li_at", value: "v" }]);
+    expect(cookies).toEqual([
+      { name: "li_at", value: "v", domain: ".linkedin.com", path: "/" },
+      { name: "JSESSIONID", value: "j", domain: ".linkedin.com", path: "/" },
+    ]);
     expect(actions).toEqual(
       expect.arrayContaining([
         ["fill", S.loginEmail, "me@x.com"],
@@ -230,6 +239,22 @@ describe("sendConnectionRequest", () => {
   ])("returns an error code for %s", async (_, page, code) => {
     fakeBrowser({ pages: { [profile]: page } });
     expect(await li.sendConnectionRequest(COOKIE, profile, "n")).toEqual({ success: false, error: code });
+  });
+
+  it("maps ERR_TOO_MANY_REDIRECTS to SESSION_EXPIRED", async () => {
+    const feed = "https://www.linkedin.com/feed";
+    const { page } = fakeBrowser({ pages: { [feed]: {}, [profile]: {} } });
+    page.goto
+      .mockImplementationOnce(async (url: string) => {
+        expect(url).toBe(feed);
+      })
+      .mockImplementationOnce(async () => {
+        throw new Error("page.goto: net::ERR_TOO_MANY_REDIRECTS");
+      });
+    expect(await li.sendConnectionRequest(COOKIE, profile, "")).toEqual({
+      success: false,
+      error: "SESSION_EXPIRED",
+    });
   });
 
   it("detects the weekly invitation limit after sending", async () => {

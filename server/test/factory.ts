@@ -52,7 +52,10 @@ export async function createAccount(workspaceId: Id, overrides: Record<string, u
     workspaceId,
     linkedinEmail: `li${rand()}@example.com`,
     linkedinPasswordEncrypted: encrypt("li-password"),
-    sessionCookies: encryptJSON([{ name: "li_at", value: "cookie", domain: ".linkedin.com", path: "/" }]),
+    sessionCookies: encryptJSON([
+      { name: "li_at", value: "cookie", domain: ".linkedin.com", path: "/" },
+      { name: "JSESSIONID", value: "js", domain: ".linkedin.com", path: "/" },
+    ]),
     status: "active",
     ...overrides,
   });

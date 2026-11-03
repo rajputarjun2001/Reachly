@@ -1,4 +1,6 @@
 import { chromium, type Browser, type BrowserContext, type Cookie, type Frame, type Page } from "playwright";
+import { normalizeLinkedInCookiesForPlaywright } from "../../utils/linkedinCookies";
+import { normalizeLinkedinUrl } from "../../utils/linkedinUrl";
 
 export type SessionCookie = Cookie;
 
@@ -7,6 +9,8 @@ export const USER_AGENT =
 export const VIEWPORT = { width: 1280, height: 800 };
 const NAV_TIMEOUT = 45000;
 const LOGIN_FIELD_TIMEOUT = 30_000;
+const LINKEDIN_ORIGIN = "https://www.linkedin.com";
+const FEED_URL = `${LINKEDIN_ORIGIN}/feed`;
 
 const LOGIN_USERNAME_SELECTORS = [
   "#username",
@@ -105,6 +109,20 @@ type Session = PlaywrightSession;
 
 export type LaunchOptions = { headless?: boolean };
 
+function logCookieDebug(label: string, cookies: SessionCookie[]) {
+  if (process.env.LINKEDIN_COOKIE_DEBUG !== "true") return;
+  console.info(`[linkedin cookies] ${label}`, {
+    count: cookies.length,
+    hasLiAt: cookies.some((c) => c.name === "li_at"),
+    hasJsession: cookies.some((c) => c.name === "JSESSIONID"),
+    domains: [...new Set(cookies.map((c) => c.domain))],
+  });
+}
+
+async function exportSessionCookies(context: BrowserContext): Promise<SessionCookie[]> {
+  return normalizeLinkedInCookiesForPlaywright(await context.cookies([LINKEDIN_ORIGIN]));
+}
+
 function launchChromium(wsEndpoint?: string, launch?: LaunchOptions) {
   if (wsEndpoint) return chromium.connect(wsEndpoint);
   const headless = launch?.headless ?? process.env.LINKEDIN_HEADLESS !== "false";
@@ -131,7 +149,11 @@ async function openBrowser({ wsEndpoint, cookies }: BrowserOptions & { cookies?:
   await context.addInitScript(() => {
     Object.defineProperty(navigator, "webdriver", { get: () => false });
   });
-  if (cookies && cookies.length) await context.addCookies(cookies);
+  if (cookies && cookies.length) {
+    const normalized = normalizeLinkedInCookiesForPlaywright(cookies);
+    logCookieDebug("restore", normalized);
+    await context.addCookies(normalized);
+  }
   const page = await context.newPage();
   page.setDefaultTimeout(15000);
   return { browser, context, page };
@@ -150,7 +172,18 @@ async function withBrowser<T>(
 }
 
 async function goto(page: Page, url: string, waitUntil: "domcontentloaded" | "load" = "domcontentloaded") {
-  await page.goto(url, { waitUntil, timeout: NAV_TIMEOUT });
+  try {
+    await page.goto(url, { waitUntil, timeout: NAV_TIMEOUT });
+  } catch (err) {
+    throw mapNavigationError(err);
+  }
+}
+
+/** Redirect loops on profile/auth URLs usually mean stale or invalid session cookies. */
+function mapNavigationError(err: unknown): Error {
+  const message = (err as Error).message || String(err);
+  if (/ERR_TOO_MANY_REDIRECTS/i.test(message)) return new Error(ERRORS.SESSION_EXPIRED);
+  return err instanceof Error ? err : new Error(message);
 }
 
 type LoginRoot = Page | Frame;
@@ -361,6 +394,12 @@ async function bodyText(page: Page) {
   }
 }
 
+async function warmSessionOnFeed(page: Page): Promise<LinkedInError | null> {
+  await goto(page, FEED_URL, "load");
+  await humanDelay(page);
+  return detectProblem(page);
+}
+
 /** Returns an error code if the current page shows a logout, checkpoint or restriction. */
 async function detectProblem(page: Page): Promise<LinkedInError | null> {
   const url = page.url();
@@ -397,7 +436,7 @@ export async function loginToLinkedIn(
     await dismissCookieBanner(page);
     await humanDelay(page);
 
-    if (isLoggedInUrl(page.url())) return context.cookies();
+    if (isLoggedInUrl(page.url())) return exportSessionCookies(context);
 
     page.setDefaultTimeout(LOGIN_FIELD_TIMEOUT);
     const formRoot = await waitForLoginForm(page);
@@ -423,7 +462,7 @@ export async function loginToLinkedIn(
       if (await exists(page, emailSelector)) throw new Error(ERRORS.INVALID_CREDENTIALS);
       throw new Error(ERRORS.CHALLENGE_REQUIRED);
     }
-    return context.cookies();
+    return exportSessionCookies(context);
   });
 }
 
@@ -433,9 +472,8 @@ export async function verifyCookies(
 ): Promise<{ valid: boolean; error?: string }> {
   if (!cookies || !cookies.length) return { valid: false };
   return withBrowser({ wsEndpoint: opts.wsEndpoint, cookies }, async ({ page }) => {
-    await goto(page, "https://www.linkedin.com/feed");
-    await humanDelay(page);
-    const problem = await detectProblem(page);
+    logCookieDebug("verify", normalizeLinkedInCookiesForPlaywright(cookies));
+    const problem = await warmSessionOnFeed(page);
     if (problem === ERRORS.SESSION_EXPIRED) return { valid: false };
     if (problem === ERRORS.ACCOUNT_RESTRICTED) return { valid: false, error: problem };
     return { valid: true };
@@ -447,6 +485,10 @@ export async function fetchOwnProfile(
   opts: BrowserOptions = {},
 ): Promise<{ fullName: string; headline: string; profileUrl: string }> {
   return withBrowser({ wsEndpoint: opts.wsEndpoint, cookies }, async ({ page }) => {
+    const feedProblem = await warmSessionOnFeed(page);
+    if (feedProblem === ERRORS.SESSION_EXPIRED) throw new Error(ERRORS.SESSION_EXPIRED);
+    if (feedProblem === ERRORS.ACCOUNT_RESTRICTED) throw new Error(ERRORS.ACCOUNT_RESTRICTED);
+
     await goto(page, "https://www.linkedin.com/in/me/");
     await humanDelay(page);
     const fullName = (await page.locator("main h1").first().innerText().catch(() => "")).trim();
@@ -463,7 +505,11 @@ export async function sendConnectionRequest(
 ): Promise<ActionResult> {
   try {
     return await withBrowser({ wsEndpoint: opts.wsEndpoint, cookies }, async ({ page }) => {
-      await goto(page, profileUrl);
+      const feedProblem = await warmSessionOnFeed(page);
+      if (feedProblem) return { success: false, error: feedProblem };
+
+      const target = normalizeLinkedinUrl(profileUrl) ?? profileUrl;
+      await goto(page, target);
       await humanDelay(page);
       const problem = await detectProblem(page);
       if (problem) return { success: false, error: problem };
@@ -507,7 +553,7 @@ export async function sendConnectionRequest(
       return { success: true };
     });
   } catch (err) {
-    return { success: false, error: (err as Error).message };
+    return { success: false, error: mapNavigationError(err).message };
   }
 }
 
@@ -519,7 +565,11 @@ export async function sendMessage(
 ): Promise<ActionResult> {
   try {
     return await withBrowser({ wsEndpoint: opts.wsEndpoint, cookies }, async ({ page }) => {
-      await goto(page, profileUrl);
+      const feedProblem = await warmSessionOnFeed(page);
+      if (feedProblem) return { success: false, error: feedProblem };
+
+      const target = normalizeLinkedinUrl(profileUrl) ?? profileUrl;
+      await goto(page, target);
       await humanDelay(page);
       const problem = await detectProblem(page);
       if (problem) return { success: false, error: problem };
@@ -541,7 +591,7 @@ export async function sendMessage(
       return { success: true };
     });
   } catch (err) {
-    return { success: false, error: (err as Error).message };
+    return { success: false, error: mapNavigationError(err).message };
   }
 }
 
@@ -553,6 +603,11 @@ export async function checkConnectionStatus(
   const results: Record<string, ConnectionState> = {};
   try {
     return await withBrowser({ wsEndpoint: opts.wsEndpoint, cookies }, async ({ page }) => {
+      const feedProblem = await warmSessionOnFeed(page);
+      if (feedProblem === ERRORS.SESSION_EXPIRED || feedProblem === ERRORS.ACCOUNT_RESTRICTED) {
+        return { success: false, error: feedProblem, results };
+      }
+
       for (const url of profileUrls) {
         await goto(page, url);
         await humanDelay(page);
@@ -572,7 +627,7 @@ export async function checkConnectionStatus(
       return { success: true, results };
     });
   } catch (err) {
-    return { success: false, error: (err as Error).message, results };
+    return { success: false, error: mapNavigationError(err).message, results };
   }
 }
 
@@ -645,6 +700,6 @@ export async function scrapeInbox(
       return { success: true, conversations: list };
     });
   } catch (err) {
-    return { success: false, error: (err as Error).message };
+    return { success: false, error: mapNavigationError(err).message };
   }
 }

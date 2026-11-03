@@ -50,7 +50,7 @@ export async function connectAccountWithSessionCookiesAction(formData: FormData)
   const email = String(formData.get("email") ?? "").trim();
   const sessionCookies = String(formData.get("session_cookies") ?? "").trim();
   if (!email) return { error: "LinkedIn email is required." };
-  if (!sessionCookies) return { error: "Paste your LinkedIn session cookies (li_at)." };
+  if (!sessionCookies) return { error: "Paste your LinkedIn session cookies (li_at and JSESSIONID, or a full export)." };
   try {
     const account = await connectAccountWithSessionCookies({
       email,

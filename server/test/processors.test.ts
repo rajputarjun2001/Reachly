@@ -54,7 +54,10 @@ describe("connectionProcessor", () => {
     expect(await processConnectionJob(s.connJob())).toEqual({ sent: true });
 
     expect(sendConnectionRequest).toHaveBeenCalledWith(
-      [expect.objectContaining({ name: "li_at", value: "cookie" })],
+      expect.arrayContaining([
+        expect.objectContaining({ name: "li_at", value: "cookie" }),
+        expect.objectContaining({ name: "JSESSIONID", value: "js" }),
+      ]),
       s.lead.linkedinUrl,
       "Hi First0, let us connect",
       expect.any(Object),

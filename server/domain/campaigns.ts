@@ -12,6 +12,7 @@ import { escapeRegex } from "../utils/helpers";
 import { isValidTimezone } from "../utils/schedule";
 import { ensureInboxPoll, scheduleDailyConnections, scheduleDueMessages } from "../services/scheduler/dailyScheduler";
 import { processConnectionJob } from "../services/scheduler/connectionProcessor";
+import { ERRORS } from "../services/playwright/linkedinActions";
 import type { ConnectionJobData, JobLike } from "../services/scheduler/jobTypes";
 import { oid, type AuthContext } from "./context";
 
@@ -363,7 +364,13 @@ export async function sendConnectionNow(ctx: AuthContext, campaignId: string, le
     if (leadAfter?.status === "skipped" && leadAfter.skipReason) {
       throw unprocessable(`Send failed: ${leadAfter.skipReason}`);
     }
-    throw unprocessable((err as Error).message || "Connection request failed");
+    const msg = (err as Error).message || "Connection request failed";
+    if (msg.includes(ERRORS.SESSION_EXPIRED) || /ERR_TOO_MANY_REDIRECTS/i.test(msg)) {
+      throw unprocessable(
+        "LinkedIn session is invalid or expired. In LinkedIn Accounts, paste fresh cookies (li_at and JSESSIONID, or a full DevTools export).",
+      );
+    }
+    throw unprocessable(msg);
   }
 
   const leadAfter = await Lead.findById(lead._id);
@@ -371,6 +378,12 @@ export async function sendConnectionNow(ctx: AuthContext, campaignId: string, le
     return { campaign, leadId: String(lead._id), sent: true };
   }
   if (leadAfter?.status === "skipped" || leadAfter?.status === "blacklisted") {
+    const reason = leadAfter.skipReason ?? "";
+    if (reason.includes("SESSION_EXPIRED") || /ERR_TOO_MANY_REDIRECTS/i.test(reason)) {
+      throw unprocessable(
+        "LinkedIn session is invalid or expired. In LinkedIn Accounts, paste fresh cookies (li_at and JSESSIONID, or a full DevTools export).",
+      );
+    }
     throw unprocessable(leadAfter.skipReason ? `Send failed: ${leadAfter.skipReason}` : "Send failed");
   }
   throw unprocessable("Connection request did not complete — check LinkedIn account session and server logs.");

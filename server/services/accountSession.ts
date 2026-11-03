@@ -1,6 +1,7 @@
 import type { Types } from "mongoose";
 import { Campaign, LinkedInAccount, type LinkedInAccountDoc } from "../models";
 import { decrypt, decryptJSON, encryptJSON } from "../utils/encryption";
+import { normalizeLinkedInCookiesForPlaywright } from "../utils/linkedinCookies";
 import * as linkedinActions from "./playwright/linkedinActions";
 import type { ActionResult, BrowserOptions, SessionCookie } from "./playwright/linkedinActions";
 import { wsEndpointFor } from "./docker/containerManager";
@@ -56,7 +57,9 @@ export async function flagAccount(account: LinkedInAccountDoc, reason: string) {
 export async function refreshSession(account: LinkedInAccountDoc): Promise<SessionCookie[]> {
   if (!account.linkedinPasswordEncrypted) throw new Error("NO_STORED_PASSWORD");
   const password = decrypt(account.linkedinPasswordEncrypted);
-  const cookies = await linkedinActions.loginToLinkedIn(account.linkedinEmail, password, browserOptions(account));
+  const cookies = normalizeLinkedInCookiesForPlaywright(
+    await linkedinActions.loginToLinkedIn(account.linkedinEmail, password, browserOptions(account)),
+  );
   account.sessionCookies = encryptJSON(cookies);
   account.status = "active";
   account.flagReason = undefined;

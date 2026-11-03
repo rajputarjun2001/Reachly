@@ -5,7 +5,10 @@ const actual = await vi.importActual<typeof Actual>("../linkedinActions");
 
 export const ERRORS = actual.ERRORS;
 export const SELECTORS = actual.SELECTORS;
-export const COOKIES = [{ name: "li_at", value: "fresh-cookie", domain: ".linkedin.com", path: "/" }];
+export const COOKIES = [
+  { name: "li_at", value: "fresh-cookie", domain: ".linkedin.com", path: "/" },
+  { name: "JSESSIONID", value: "fresh-jsession", domain: ".linkedin.com", path: "/" },
+];
 
 export const loginToLinkedIn = vi.fn(async () => COOKIES);
 export const verifyCookies = vi.fn(async () => ({ valid: true }) as { valid: boolean; error?: string });

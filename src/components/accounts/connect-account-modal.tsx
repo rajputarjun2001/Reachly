@@ -239,9 +239,9 @@ export function ConnectAccountModal({ open, onClose }: ConnectAccountModalProps)
           <a href="https://www.linkedin.com/login" target="_blank" rel="noopener noreferrer">
             linkedin.com
           </a>{" "}
-          in your browser, then open DevTools → Application → Cookies → <code>linkedin.com</code> and copy{" "}
-          <code>li_at</code> (or export cookies as JSON). Reachly verifies the session from the server and stores it
-          encrypted—ideal for deployed hosts like Render.
+          in your browser, then open DevTools → Application → Cookies → <code>.linkedin.com</code> and paste{" "}
+          <code>li_at</code> and <code>JSESSIONID</code> (or export the full cookie list as JSON). Reachly verifies the
+          session from the server and stores it encrypted—ideal for deployed hosts like Render.
         </div>
       ) : (
         <div
@@ -326,7 +326,7 @@ export function ConnectAccountModal({ open, onClose }: ConnectAccountModalProps)
               rows={5}
               required
               disabled={busy}
-              placeholder="Paste li_at or JSON cookie export"
+              placeholder="li_at=…; JSESSIONID=… or JSON cookie export"
               spellCheck={false}
               autoComplete="off"
             />

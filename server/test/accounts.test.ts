@@ -136,6 +136,8 @@ describe("POST /api/accounts", () => {
   });
 });
 
+const IMPORTED_SESSION = "li_at=AQEDAS1234567890abcdefghijklmnop; JSESSIONID=imported-session";
+
 describe("POST /api/accounts/connect/session", () => {
   it("stores encrypted cookies after verifying a pasted session", async () => {
     const fx = await createWorkspaceFixture();
@@ -144,7 +146,7 @@ describe("POST /api/accounts/connect/session", () => {
       .set(fx.auth)
       .send({
         linkedinEmail: "session@li.com",
-        sessionCookies: "AQEDAS1234567890abcdefghijklmnop",
+        sessionCookies: IMPORTED_SESSION,
         label: "Imported",
         dailyLimit: 6,
       });
@@ -163,13 +165,23 @@ describe("POST /api/accounts/connect/session", () => {
     expect(cookies.some((c) => c.name === "li_at" && c.value === "AQEDAS1234567890abcdefghijklmnop")).toBe(true);
   });
 
+  it("rejects bare li_at-only paste with 400", async () => {
+    const fx = await createWorkspaceFixture();
+    const res = await request(app)
+      .post("/api/accounts/connect/session")
+      .set(fx.auth)
+      .send({ linkedinEmail: "bare@li.com", sessionCookies: "AQEDAS1234567890abcdefghijklmnop" });
+    expect(res.status).toBe(400);
+    expect(verifyCookies).not.toHaveBeenCalled();
+  });
+
   it("rejects invalid cookies with 422", async () => {
     const fx = await createWorkspaceFixture();
     verifyCookies.mockResolvedValueOnce({ valid: false });
     const res = await request(app)
       .post("/api/accounts/connect/session")
       .set(fx.auth)
-      .send({ linkedinEmail: "bad@li.com", sessionCookies: "AQEDAS1234567890abcdefghijklmnop" });
+      .send({ linkedinEmail: "bad@li.com", sessionCookies: IMPORTED_SESSION });
     expect(res.status).toBe(422);
     expect(res.body.error).toBe(accountsDomain.INVALID_SESSION_COOKIES);
   });
@@ -258,7 +270,7 @@ describe("reconnect and delete", () => {
     const res = await request(app)
       .post(`/api/accounts/${account._id}/reconnect`)
       .set(fx.auth)
-      .send({ sessionCookies: "AQEDAS1234567890abcdefghijklmnop" });
+      .send({ sessionCookies: IMPORTED_SESSION });
     expect(res.status).toBe(200);
     expect(res.body.data.status).toBe("active");
     expect(verifyCookies).toHaveBeenCalled();

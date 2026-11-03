@@ -59,8 +59,9 @@ export function RefreshSessionModal({ open, accountName, accountId, onClose }: R
       }
     >
       <p className="form-hint" style={{ marginBottom: 12 }}>
-        Paste a fresh <strong>li_at</strong> for <strong>{accountName}</strong> after signing in at linkedin.com in your
-        browser. Reachly encrypts cookies at rest and never stores your password for this path.
+        Paste fresh session cookies for <strong>{accountName}</strong> after signing in at linkedin.com—include{" "}
+        <strong>li_at</strong> and <strong>JSESSIONID</strong>, or a full DevTools export. Reachly encrypts cookies at
+        rest and never stores your password for this path.
       </p>
       {error ? (
         <p role="alert" className="form-hint" style={{ color: "var(--red)", marginBottom: 12 }}>
@@ -79,7 +80,7 @@ export function RefreshSessionModal({ open, accountName, accountId, onClose }: R
             rows={5}
             required
             disabled={pending}
-            placeholder="Paste li_at value or JSON cookie export from DevTools → Application → Cookies → linkedin.com"
+            placeholder="li_at=…; JSESSIONID=… or JSON export from DevTools → Application → Cookies → .linkedin.com"
             spellCheck={false}
             autoComplete="off"
           />

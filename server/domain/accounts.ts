@@ -9,14 +9,14 @@ import { ensureInboxPoll, removeInboxPoll } from "../services/scheduler/dailySch
 import { logEvent } from "../services/events";
 import type { SessionCookie } from "../services/playwright/linkedinActions";
 import * as browserConnect from "../services/playwright/browserConnectSessions";
-import { parseLinkedInSessionCookies } from "../utils/linkedinCookies";
+import { parseLinkedInSessionCookies, normalizeLinkedInCookiesForPlaywright } from "../utils/linkedinCookies";
 import { oid, type AuthContext } from "./context";
 
 const { ERRORS } = linkedinActions;
 export const CHALLENGE_MESSAGE = "LinkedIn requires verification. Please log in manually and try again.";
 export const CONNECT_LOGIN_FAILED = "Could not connect the LinkedIn account. Please try again later.";
 export const INVALID_SESSION_COOKIES =
-  "LinkedIn rejected these session cookies. Sign in at linkedin.com in your browser, copy a fresh li_at, and try again.";
+  "LinkedIn rejected these session cookies. Sign in at linkedin.com, then paste li_at and JSESSIONID (or a full cookie export from DevTools) and try again.";
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export async function workspaceDailyCap(workspaceId: string): Promise<number> {
@@ -57,12 +57,13 @@ async function ensureBrowserContainer(account: LinkedInAccountDoc) {
 }
 
 async function persistSession(account: LinkedInAccountDoc, cookies: SessionCookie[], source: string) {
-  account.sessionCookies = encryptJSON(cookies);
+  const normalized = normalizeLinkedInCookiesForPlaywright(cookies);
+  account.sessionCookies = encryptJSON(normalized);
   account.status = "active";
   account.flagReason = undefined;
   account.lastHealthCheck = new Date();
   try {
-    const profile = await linkedinActions.fetchOwnProfile(cookies, browserOptions(account));
+    const profile = await linkedinActions.fetchOwnProfile(normalized, browserOptions(account));
     if (profile?.fullName) account.fullName = profile.fullName;
     if (profile?.headline) account.headline = profile.headline;
     if (profile?.profileUrl) account.profileUrl = profile.profileUrl;

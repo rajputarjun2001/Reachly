@@ -1,6 +1,7 @@
 import { randomUUID } from "crypto";
 import type { SessionCookie } from "./linkedinActions";
 import * as linkedinActions from "./linkedinActions";
+import { normalizeLinkedInCookiesForPlaywright } from "../../utils/linkedinCookies";
 
 const SESSION_TTL_MS = 15 * 60 * 1000;
 const POLL_MS = 2000;
@@ -52,7 +53,7 @@ async function finish(session: LiveSession, status: BrowserConnectStatus, extra:
 async function tryComplete(session: LiveSession) {
   if (session.status !== "pending" || !session.playwright) return;
   const { context, page } = session.playwright;
-  const cookies = await context.cookies();
+  const cookies = normalizeLinkedInCookiesForPlaywright(await context.cookies(["https://www.linkedin.com"]));
   const url = page.url();
   if (!linkedinActions.hasLinkedInSession(cookies, url)) return;
 
