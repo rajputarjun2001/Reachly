@@ -25,31 +25,35 @@ function isLocalHost(): boolean {
   return h === "localhost" || h === "127.0.0.1";
 }
 
-function defaultMode(oauth: boolean, browser: boolean): Mode {
+function defaultMode(oauth: boolean): Mode {
   if (oauth) return "oauth";
-  if (!browser) return "cookies";
-  return "browser";
+  return "cookies";
 }
 
 export function ConnectAccountModal({ open, onClose, linkedinOAuthEnabled = false }: ConnectAccountModalProps) {
   const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);
-  const browserConnectAvailable = typeof window !== "undefined" && isLocalHost();
-  const [mode, setMode] = useState<Mode>(() => defaultMode(linkedinOAuthEnabled, browserConnectAvailable));
+  /** SSR and first paint must match; detect localhost after mount to avoid hydration mismatch. */
+  const [browserConnectAvailable, setBrowserConnectAvailable] = useState(false);
+  const [mode, setMode] = useState<Mode>(() => defaultMode(linkedinOAuthEnabled));
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const [browserSessionId, setBrowserSessionId] = useState<string | null>(null);
   const [browserStatus, setBrowserStatus] = useState<string | null>(null);
 
   useEffect(() => {
+    setBrowserConnectAvailable(isLocalHost());
+  }, []);
+
+  useEffect(() => {
     if (!open) {
       setError(null);
-      setMode(defaultMode(linkedinOAuthEnabled, browserConnectAvailable));
+      setMode(defaultMode(linkedinOAuthEnabled));
       setBrowserSessionId(null);
       setBrowserStatus(null);
       formRef.current?.reset();
     }
-  }, [open, browserConnectAvailable, linkedinOAuthEnabled]);
+  }, [open, linkedinOAuthEnabled]);
 
   useEffect(() => {
     if (!browserConnectAvailable || !browserSessionId || browserStatus === "success" || browserStatus === "failed" || browserStatus === "cancelled") {
@@ -270,10 +274,11 @@ export function ConnectAccountModal({ open, onClose, linkedinOAuthEnabled = fals
             color: "#065f46",
           }}
         >
-          A Chromium window opens on the machine running Reachly (your PC when using <code>npm run dev</code>). If you
-          are already signed in to LinkedIn there, you may land on the feed right away and Reachly will save the session
-          automatically. Otherwise sign in and complete verification—the window closes when done and we store encrypted
-          session cookies only (no password).
+          A <strong>separate Chromium window</strong> opens on the PC where <code>npm run dev</code> is running (check your
+          taskbar—it is not inside this browser tab). First time? Run <code>npm run browsers:install</code> once, then
+          restart the dev server. If no window appears, use <strong>Paste session cookies</strong> instead. If you are
+          already signed in to LinkedIn there, Reachly saves the session when you land on the feed; otherwise sign in
+          and complete verification.
         </div>
       ) : mode === "cookies" ? (
         <div

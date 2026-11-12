@@ -297,7 +297,24 @@ export async function startBrowserConnect(
       throw conflict("A browser sign-in is already in progress for this workspace. Finish or cancel it first.");
     }
     console.error("[accounts] browser connect failed:", message);
-    throw new AppError(502, CONNECT_LOGIN_FAILED);
+    if (/Executable doesn't exist|Failed to launch/i.test(message)) {
+      throw unprocessable(
+        "Chromium is missing or could not start. In the project folder run: npm run browsers:install — then stop and restart npm run dev. Or use Paste session cookies instead.",
+        "BROWSER_LAUNCH_FAILED",
+      );
+    }
+    if (/ERR_NAME_NOT_RESOLVED|ERR_INTERNET_DISCONNECTED|ERR_NETWORK|TIMED_OUT|Timeout/i.test(message)) {
+      throw unprocessable(
+        "Reachly could not load LinkedIn in the local browser (network or timeout). Check your internet or use Paste session cookies.",
+        "BROWSER_LAUNCH_FAILED",
+      );
+    }
+    throw unprocessable(
+      message
+        ? `Could not open the LinkedIn browser: ${message}`
+        : "Could not open the LinkedIn browser. Use Paste session cookies, or run npm run browsers:install and restart npm run dev.",
+      "BROWSER_LAUNCH_FAILED",
+    );
   }
 }
 

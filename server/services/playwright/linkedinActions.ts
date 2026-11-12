@@ -1,3 +1,4 @@
+import fs from "fs";
 import { chromium, type Browser, type BrowserContext, type Cookie, type Frame, type Page } from "playwright";
 import { normalizeLinkedInCookiesForPlaywright } from "../../utils/linkedinCookies";
 import { normalizeLinkedinUrl } from "../../utils/linkedinUrl";
@@ -123,8 +124,18 @@ async function exportSessionCookies(context: BrowserContext): Promise<SessionCoo
   return normalizeLinkedInCookiesForPlaywright(await context.cookies([LINKEDIN_ORIGIN]));
 }
 
+function assertChromiumInstalled() {
+  const path = chromium.executablePath();
+  if (!fs.existsSync(path)) {
+    throw new Error(
+      `Executable doesn't exist at ${path} — run npm run browsers:install in the Reachly project, then restart the server.`,
+    );
+  }
+}
+
 function launchChromium(wsEndpoint?: string, launch?: LaunchOptions) {
   if (wsEndpoint) return chromium.connect(wsEndpoint);
+  assertChromiumInstalled();
   const headless = launch?.headless ?? process.env.LINKEDIN_HEADLESS !== "false";
   const baseArgs = ["--disable-blink-features=AutomationControlled", "--no-sandbox", "--disable-dev-shm-usage"];
   // Full Chrome headless (not headless-shell): LinkedIn often omits the password form in the shell build.
