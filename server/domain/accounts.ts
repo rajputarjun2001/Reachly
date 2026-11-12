@@ -17,6 +17,7 @@ export const CHALLENGE_MESSAGE = "LinkedIn requires verification. Please log in 
 export const CONNECT_LOGIN_FAILED = "Could not connect the LinkedIn account. Please try again later.";
 export const INVALID_SESSION_COOKIES =
   "LinkedIn rejected these session cookies. Sign in at linkedin.com, then paste li_at and JSESSIONID (or a full cookie export from DevTools) and try again.";
+export const SESSION_REQUIRED = "SESSION_REQUIRED";
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export async function workspaceDailyCap(workspaceId: string): Promise<number> {
@@ -25,7 +26,7 @@ export async function workspaceDailyCap(workspaceId: string): Promise<number> {
   return Math.min(workspace?.dailyLimitPerAccount || 10, planCap);
 }
 
-async function resolveDailyLimit(workspaceId: string, requested: unknown): Promise<number> {
+export async function resolveAccountDailyLimit(workspaceId: string, requested: unknown): Promise<number> {
   const cap = await workspaceDailyCap(workspaceId);
   if (requested === undefined || requested === null || requested === "") return cap;
   const n = Number(requested);
@@ -138,7 +139,7 @@ async function createAccountFromBrowserSession(
     workspaceId: ctx.workspaceId,
     linkedinEmail: email,
     label: input.label,
-    dailyLimit: await resolveDailyLimit(ctx.workspaceId, input.dailyLimit),
+    dailyLimit: await resolveAccountDailyLimit(ctx.workspaceId, input.dailyLimit),
     status: "connecting",
   });
   await applyImportedSession(account, cookies, "connect_browser");
@@ -161,7 +162,7 @@ export async function connectAccountWithSessionCookies(
     workspaceId: ctx.workspaceId,
     linkedinEmail: email,
     label: input.label ? String(input.label).trim() : undefined,
-    dailyLimit: await resolveDailyLimit(ctx.workspaceId, input.dailyLimit),
+    dailyLimit: await resolveAccountDailyLimit(ctx.workspaceId, input.dailyLimit),
     status: "connecting",
   });
 
@@ -197,7 +198,7 @@ export async function connectAccount(
     linkedinEmail: email,
     label: input.label ? String(input.label).trim() : undefined,
     linkedinPasswordEncrypted: encrypt(password),
-    dailyLimit: await resolveDailyLimit(ctx.workspaceId, input.dailyLimit),
+    dailyLimit: await resolveAccountDailyLimit(ctx.workspaceId, input.dailyLimit),
     status: "connecting",
   });
 
@@ -236,7 +237,7 @@ export async function reconnectAccount(
 ) {
   const account = await findAccount(ctx, id, { withSecrets: true });
   if (input.linkedinPassword) account.linkedinPasswordEncrypted = encrypt(String(input.linkedinPassword));
-  if (input.dailyLimit !== undefined) account.dailyLimit = await resolveDailyLimit(ctx.workspaceId, input.dailyLimit);
+  if (input.dailyLimit !== undefined) account.dailyLimit = await resolveAccountDailyLimit(ctx.workspaceId, input.dailyLimit);
   account.status = "connecting";
   await account.save();
 
@@ -276,7 +277,7 @@ export async function startBrowserConnect(
     throw conflict("This LinkedIn account is already connected");
   }
   const label = input.label ? String(input.label).trim() : undefined;
-  const dailyLimit = await resolveDailyLimit(ctx.workspaceId, input.dailyLimit);
+  const dailyLimit = await resolveAccountDailyLimit(ctx.workspaceId, input.dailyLimit);
 
   if (!env.browserConnectEnabled) {
     throw unprocessable(
@@ -315,7 +316,7 @@ export async function cancelBrowserConnect(ctx: AuthContext, sessionId: string) 
 export async function updateAccount(ctx: AuthContext, id: string, input: { label?: unknown; dailyLimit?: unknown }) {
   const account = await findAccount(ctx, id);
   if (input.label !== undefined) account.label = input.label ? String(input.label).trim() : undefined;
-  if (input.dailyLimit !== undefined) account.dailyLimit = await resolveDailyLimit(ctx.workspaceId, input.dailyLimit);
+  if (input.dailyLimit !== undefined) account.dailyLimit = await resolveAccountDailyLimit(ctx.workspaceId, input.dailyLimit);
   await account.save();
   return account;
 }

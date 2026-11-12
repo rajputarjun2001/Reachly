@@ -7,9 +7,10 @@ import { ModalShell } from "./modal-shell";
 
 type AppModalsProps = {
   liveMode?: boolean;
+  linkedinOAuthEnabled?: boolean;
 };
 
-export function AppModals({ liveMode = false }: AppModalsProps) {
+export function AppModals({ liveMode = false, linkedinOAuthEnabled = false }: AppModalsProps) {
   const { isOpen, closeModal } = useModals();
 
   return (
@@ -21,7 +22,11 @@ export function AppModals({ liveMode = false }: AppModalsProps) {
       />
 
       {liveMode ? (
-        <ConnectAccountModal open={isOpen("addAccount")} onClose={() => closeModal("addAccount")} />
+        <ConnectAccountModal
+          open={isOpen("addAccount")}
+          onClose={() => closeModal("addAccount")}
+          linkedinOAuthEnabled={linkedinOAuthEnabled}
+        />
       ) : (
       <ModalShell
         open={isOpen("addAccount")}

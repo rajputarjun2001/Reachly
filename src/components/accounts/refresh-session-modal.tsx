@@ -10,9 +10,17 @@ type RefreshSessionModalProps = {
   accountName: string;
   accountId: string;
   onClose: () => void;
+  /** After OIDC connect — outreach step only. */
+  enableOutreach?: boolean;
 };
 
-export function RefreshSessionModal({ open, accountName, accountId, onClose }: RefreshSessionModalProps) {
+export function RefreshSessionModal({
+  open,
+  accountName,
+  accountId,
+  onClose,
+  enableOutreach = false,
+}: RefreshSessionModalProps) {
   const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);
   const [error, setError] = useState<string | null>(null);
@@ -46,7 +54,7 @@ export function RefreshSessionModal({ open, accountName, accountId, onClose }: R
     <ModalShell
       open={open}
       onClose={() => !pending && onClose()}
-      title="Update session cookies"
+      title={enableOutreach ? "Enable outreach session" : "Update session cookies"}
       footer={
         <>
           <button type="button" className="btn btn-outline" onClick={onClose} disabled={pending}>
@@ -59,9 +67,19 @@ export function RefreshSessionModal({ open, accountName, accountId, onClose }: R
       }
     >
       <p className="form-hint" style={{ marginBottom: 12 }}>
-        Paste fresh session cookies for <strong>{accountName}</strong> after signing in at linkedin.com—include{" "}
-        <strong>li_at</strong> and <strong>JSESSIONID</strong>, or a full DevTools export. Reachly encrypts cookies at
-        rest and never stores your password for this path.
+        {enableOutreach ? (
+          <>
+            LinkedIn Sign-In verified <strong>{accountName}</strong>. Sign in at linkedin.com in your browser, then
+            paste <strong>li_at</strong> and <strong>JSESSIONID</strong> (or a DevTools cookie export) so Reachly can
+            send connections and sync Unibox.
+          </>
+        ) : (
+          <>
+            Paste fresh session cookies for <strong>{accountName}</strong> after signing in at linkedin.com—include{" "}
+            <strong>li_at</strong> and <strong>JSESSIONID</strong>, or a full DevTools export. Reachly encrypts cookies
+            at rest and never stores your password for this path.
+          </>
+        )}
       </p>
       {error ? (
         <p role="alert" className="form-hint" style={{ color: "var(--red)", marginBottom: 12 }}>

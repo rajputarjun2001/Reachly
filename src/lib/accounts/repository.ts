@@ -24,6 +24,8 @@ function mapAccount(doc: LinkedInAccountDoc, todayKey: string): LinkedInAccountV
     profile_url: doc.profileUrl ?? null,
     status: doc.status as AccountStatus,
     flag_reason: doc.flagReason ?? null,
+    identity_verified: Boolean(doc.linkedinSub),
+    outreach_ready: doc.status === "active",
     daily_limit: doc.dailyLimit ?? 10,
     today_sent_count: sentToday,
     last_health_check: iso(doc.lastHealthCheck),

@@ -49,7 +49,12 @@ Chromium is installed into `node_modules` during `npm run build`, not Render’s
 
 On Linux hosts, if Chromium downloads but fails to start with missing shared libraries, run `npx playwright install-deps chromium` in the build step (requires a image/OS that allows it) or deploy with `DOCKER_ENABLED=true` and Docker available on the host.
 
-**Password login from cloud hosts:** LinkedIn may omit login inputs for datacenter IPs even when the page title looks normal. If logs show `LOGIN_FORM_NOT_FOUND` with `no inputs in DOM`, use **Paste session cookies** in Add Account (copy `li_at` from your browser after signing in at linkedin.com), or run the app on a non-cloud host. There is no supported password-login workaround on Render today without a residential proxy (not implemented).
+**Recommended connect paths on cloud hosts:**
+
+1. **Sign In with LinkedIn (OIDC)** — set `LINKEDIN_CLIENT_ID` and `LINKEDIN_CLIENT_SECRET`; add redirect URL `{NEXT_PUBLIC_SITE_URL}/auth/linkedin/callback` in the LinkedIn Developer Portal. OIDC verifies identity only; after redirect, paste **session cookies** to enable outreach.
+2. **Paste session cookies** — sign in at linkedin.com in your browser, copy `li_at` (+ `JSESSIONID`) from DevTools, connect in Add Account.
+
+**Password login from cloud hosts:** LinkedIn may omit login inputs for datacenter IPs even when the page title looks normal. If logs show `LOGIN_FORM_NOT_FOUND` with `no inputs in DOM`, avoid password connect on Render; prefer OIDC + cookies or cookies-only. There is no supported password-login workaround on cloud hosts without a residential proxy (not implemented).
 
 ## Verify locally
 

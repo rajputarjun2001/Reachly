@@ -13,6 +13,11 @@ const linkedInAccountSchema = new Schema(
     fullName: String,
     headline: String,
     profileUrl: String,
+    /** LinkedIn OIDC subject (`sub`) when connected via Sign In with LinkedIn. */
+    linkedinSub: { type: String, trim: true },
+    oauthAccessTokenEncrypted: { type: String, select: false },
+    oauthExpiresAt: Date,
+    oauthScopes: String,
     status: { type: String, enum: ACCOUNT_STATUSES, default: "connecting" },
     sessionCookies: { type: String, select: false },
     containerId: String,
@@ -31,6 +36,10 @@ const linkedInAccountSchema = new Schema(
 
 linkedInAccountSchema.index({ workspaceId: 1 });
 linkedInAccountSchema.index({ workspaceId: 1, linkedinEmail: 1 }, { unique: true });
+linkedInAccountSchema.index(
+  { workspaceId: 1, linkedinSub: 1 },
+  { unique: true, partialFilterExpression: { linkedinSub: { $exists: true, $type: "string" } } },
+);
 
 linkedInAccountSchema.pre("save", function encryptPassword() {
   if (
@@ -46,6 +55,7 @@ linkedInAccountSchema.set("toJSON", {
   transform(_doc, ret: Record<string, unknown>) {
     delete ret.linkedinPasswordEncrypted;
     delete ret.sessionCookies;
+    delete ret.oauthAccessTokenEncrypted;
     delete ret.__v;
     return ret;
   },

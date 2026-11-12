@@ -8,7 +8,16 @@ import { getWorkspaceContext, redirectWithoutWorkspace } from "@/lib/workspace/c
 
 export const dynamic = "force-dynamic";
 
-export default async function AccountsPage() {
+type AccountsPageProps = {
+  searchParams: Promise<{
+    oauth?: string;
+    account_id?: string;
+    oauth_error?: string;
+  }>;
+};
+
+export default async function AccountsPage({ searchParams }: AccountsPageProps) {
+  const query = await searchParams;
   if (!isBackendConfigured()) {
     return <PreviewSwitch populated={<AccountsPopulated />} empty={<AccountsEmpty />} />;
   }
@@ -25,5 +34,18 @@ export default async function AccountsPage() {
     loadError = "Could not load LinkedIn accounts. Is MongoDB running?";
   }
 
-  return <AccountsLiveView accounts={accounts} dailyCap={dailyCap} loadError={loadError} />;
+  return (
+    <AccountsLiveView
+      accounts={accounts}
+      dailyCap={dailyCap}
+      loadError={loadError}
+      oauthBanner={
+        query.oauth === "session_required"
+          ? { accountId: query.account_id ?? null }
+          : query.oauth_error
+            ? { error: query.oauth_error }
+            : null
+      }
+    />
+  );
 }

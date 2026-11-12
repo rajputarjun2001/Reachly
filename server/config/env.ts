@@ -126,6 +126,20 @@ export const env = {
   get dockerHostAddress() {
     return read("DOCKER_HOST_ADDRESS") || "127.0.0.1";
   },
+  get linkedinClientId() {
+    return read("LINKEDIN_CLIENT_ID");
+  },
+  get linkedinClientSecret() {
+    return read("LINKEDIN_CLIENT_SECRET");
+  },
+  get linkedinOAuthRedirectUri() {
+    const explicit = read("LINKEDIN_OAUTH_REDIRECT_URI");
+    if (explicit) return explicit.replace(/\/$/, "");
+    return `${env.siteUrl}/auth/linkedin/callback`;
+  },
+  get linkedinOAuthConfigured() {
+    return Boolean(env.linkedinClientId && env.linkedinClientSecret);
+  },
 };
 
 /** Returns a human-readable problem with the backend configuration, or null when it is usable. */

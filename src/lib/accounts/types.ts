@@ -10,6 +10,10 @@ export type LinkedInAccountView = {
   profile_url: string | null;
   status: AccountStatus;
   flag_reason: string | null;
+  /** OIDC identity bound (Sign In with LinkedIn). */
+  identity_verified: boolean;
+  /** Browser session stored for Playwright outreach. */
+  outreach_ready: boolean;
   daily_limit: number;
   today_sent_count: number;
   last_health_check: string | null;

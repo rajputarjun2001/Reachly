@@ -13,10 +13,18 @@ import {
 } from "@/app/(app)/accounts/actions";
 import { RefreshSessionModal } from "@/components/accounts/refresh-session-modal";
 
+const SESSION_REQUIRED = "SESSION_REQUIRED";
+
+type OauthBanner =
+  | { accountId: string | null }
+  | { error: string }
+  | null;
+
 type AccountsLiveViewProps = {
   accounts: LinkedInAccountView[];
   dailyCap: number;
   loadError: string | null;
+  oauthBanner?: OauthBanner;
 };
 
 const STATUS_BADGE: Record<AccountStatus, { className: string; label: string }> = {
@@ -31,13 +39,24 @@ function formatDate(value: string | null) {
   return new Date(value).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 }
 
-function AccountCard({ account, dailyCap }: { account: LinkedInAccountView; dailyCap: number }) {
+function AccountCard({
+  account,
+  dailyCap,
+  openSessionOnMount,
+}: {
+  account: LinkedInAccountView;
+  dailyCap: number;
+  openSessionOnMount?: boolean;
+}) {
   const router = useRouter();
   const [message, setMessage] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
-  const [refreshSessionOpen, setRefreshSessionOpen] = useState(false);
+  const [refreshSessionOpen, setRefreshSessionOpen] = useState(openSessionOnMount ?? false);
   const [pending, startTransition] = useTransition();
-  const badge = STATUS_BADGE[account.status];
+  const needsSession = account.flag_reason === SESSION_REQUIRED;
+  const badge = needsSession
+    ? { className: "badge badge-amber", label: "Needs outreach session" }
+    : STATUS_BADGE[account.status];
   const used = Math.min(100, Math.round((account.today_sent_count / Math.max(1, account.daily_limit)) * 100));
 
   const run = (fn: () => Promise<{ error?: string; success?: string }>) => {
@@ -104,9 +123,18 @@ function AccountCard({ account, dailyCap }: { account: LinkedInAccountView; dail
       <div style={{ fontSize: 12, color: "var(--fg2)" }}>
         {account.linkedin_email} · Added {new Date(account.created_at).toLocaleDateString()}
       </div>
-      {account.flag_reason ? (
+      {needsSession ? (
+        <p className="form-hint" style={{ color: "#92400E" }}>
+          Identity verified via LinkedIn Sign-In. Paste session cookies to enable connection requests and Unibox sync.
+        </p>
+      ) : account.flag_reason ? (
         <p className="form-hint" style={{ color: "var(--red)" }}>
           LinkedIn asked for verification. Paste fresh session cookies or reconnect with your password.
+        </p>
+      ) : null}
+      {account.identity_verified && account.outreach_ready ? (
+        <p className="form-hint" style={{ marginTop: 4 }}>
+          Identity (OIDC) and outreach session are active.
         </p>
       ) : null}
       {editing ? (
@@ -163,15 +191,18 @@ function AccountCard({ account, dailyCap }: { account: LinkedInAccountView; dail
         open={refreshSessionOpen}
         accountId={account.id}
         accountName={account.display_name}
+        enableOutreach={needsSession}
         onClose={() => setRefreshSessionOpen(false)}
       />
     </div>
   );
 }
 
-export function AccountsLiveView({ accounts, dailyCap, loadError }: AccountsLiveViewProps) {
+export function AccountsLiveView({ accounts, dailyCap, loadError, oauthBanner }: AccountsLiveViewProps) {
   const { openModal } = useModals();
-  const active = accounts.filter((a) => a.status === "active");
+  const active = accounts.filter((a) => a.outreach_ready);
+  const highlightAccountId =
+    oauthBanner && "accountId" in oauthBanner ? oauthBanner.accountId ?? undefined : undefined;
   const capacity = active.reduce((sum, a) => sum + a.daily_limit, 0);
 
   return (
@@ -190,6 +221,28 @@ export function AccountsLiveView({ accounts, dailyCap, loadError }: AccountsLive
         </button>
       </div>
       <div className="content">
+        {oauthBanner && "error" in oauthBanner ? (
+          <p role="alert" style={{ color: "#B91C1C", marginBottom: 16 }}>
+            {oauthBanner.error}
+          </p>
+        ) : null}
+        {oauthBanner && "accountId" in oauthBanner ? (
+          <div
+            role="status"
+            style={{
+              background: "var(--green-light, #ecfdf5)",
+              border: "1px solid #a7f3d0",
+              borderRadius: 8,
+              padding: "12px 14px",
+              marginBottom: 16,
+              fontSize: 13,
+              color: "#065f46",
+            }}
+          >
+            <strong>LinkedIn identity connected.</strong> Add session cookies on the account card below to enable
+            outreach (connection requests and Unibox). OAuth does not replace a browser session.
+          </div>
+        ) : null}
         {loadError ? (
           <p role="alert" style={{ color: "#B91C1C", marginBottom: 16 }}>{loadError}</p>
         ) : null}
@@ -202,7 +255,12 @@ export function AccountsLiveView({ accounts, dailyCap, loadError }: AccountsLive
         </div>
         <div className="grid-2">
           {accounts.map((account) => (
-            <AccountCard key={account.id} account={account} dailyCap={dailyCap} />
+            <AccountCard
+              key={account.id}
+              account={account}
+              dailyCap={dailyCap}
+              openSessionOnMount={highlightAccountId === account.id}
+            />
           ))}
           <div
             className="account-card"

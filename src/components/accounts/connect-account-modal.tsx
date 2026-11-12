@@ -14,9 +14,10 @@ import {
 type ConnectAccountModalProps = {
   open: boolean;
   onClose: () => void;
+  linkedinOAuthEnabled?: boolean;
 };
 
-type Mode = "password" | "browser" | "cookies";
+type Mode = "oauth" | "password" | "browser" | "cookies";
 
 function isLocalHost(): boolean {
   if (typeof window === "undefined") return false;
@@ -24,11 +25,17 @@ function isLocalHost(): boolean {
   return h === "localhost" || h === "127.0.0.1";
 }
 
-export function ConnectAccountModal({ open, onClose }: ConnectAccountModalProps) {
+function defaultMode(oauth: boolean, browser: boolean): Mode {
+  if (oauth) return "oauth";
+  if (!browser) return "cookies";
+  return "browser";
+}
+
+export function ConnectAccountModal({ open, onClose, linkedinOAuthEnabled = false }: ConnectAccountModalProps) {
   const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);
   const browserConnectAvailable = typeof window !== "undefined" && isLocalHost();
-  const [mode, setMode] = useState<Mode>("cookies");
+  const [mode, setMode] = useState<Mode>(() => defaultMode(linkedinOAuthEnabled, browserConnectAvailable));
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const [browserSessionId, setBrowserSessionId] = useState<string | null>(null);
@@ -37,12 +44,12 @@ export function ConnectAccountModal({ open, onClose }: ConnectAccountModalProps)
   useEffect(() => {
     if (!open) {
       setError(null);
-      setMode(browserConnectAvailable ? "browser" : "cookies");
+      setMode(defaultMode(linkedinOAuthEnabled, browserConnectAvailable));
       setBrowserSessionId(null);
       setBrowserStatus(null);
       formRef.current?.reset();
     }
-  }, [open, browserConnectAvailable]);
+  }, [open, browserConnectAvailable, linkedinOAuthEnabled]);
 
   useEffect(() => {
     if (!browserConnectAvailable || !browserSessionId || browserStatus === "success" || browserStatus === "failed" || browserStatus === "cancelled") {
@@ -125,8 +132,23 @@ export function ConnectAccountModal({ open, onClose }: ConnectAccountModalProps)
     });
   };
 
+  const submitOAuth = () => {
+    const form = formRef.current;
+    if (!form || !form.reportValidity()) return;
+    const formData = new FormData(form);
+    const params = new URLSearchParams();
+    const label = String(formData.get("label") ?? "").trim();
+    const email = String(formData.get("email") ?? "").trim();
+    const dailyLimit = String(formData.get("daily_limit") ?? "").trim();
+    if (label) params.set("label", label);
+    if (email) params.set("email", email);
+    if (dailyLimit) params.set("daily_limit", dailyLimit);
+    window.location.assign(`/auth/linkedin/start?${params.toString()}`);
+  };
+
   const submit = () => {
-    if (mode === "password") submitPassword();
+    if (mode === "oauth") submitOAuth();
+    else if (mode === "password") submitPassword();
     else if (mode === "cookies") submitCookies();
     else submitBrowser();
   };
@@ -161,7 +183,11 @@ export function ConnectAccountModal({ open, onClose }: ConnectAccountModalProps)
               Close
             </button>
           )}
-          {mode === "password" ? (
+          {mode === "oauth" ? (
+            <button type="button" className="btn btn-primary" onClick={submitOAuth} disabled={busy}>
+              Continue with LinkedIn
+            </button>
+          ) : mode === "password" ? (
             <button type="button" className="btn btn-primary" onClick={submitPassword} disabled={busy}>
               {pending ? "Signing in…" : "Connect with password"}
             </button>
@@ -178,6 +204,16 @@ export function ConnectAccountModal({ open, onClose }: ConnectAccountModalProps)
       }
     >
       <div className="flex-center gap-8" style={{ marginBottom: 16, flexWrap: "wrap" }}>
+        {linkedinOAuthEnabled ? (
+          <button
+            type="button"
+            className={`btn btn-sm ${mode === "oauth" ? "btn-primary" : "btn-outline"}`}
+            onClick={() => !busy && setMode("oauth")}
+            disabled={busy}
+          >
+            Sign In with LinkedIn
+          </button>
+        ) : null}
         {browserConnectAvailable ? (
           <button
             type="button"
@@ -206,7 +242,23 @@ export function ConnectAccountModal({ open, onClose }: ConnectAccountModalProps)
         </button>
       </div>
 
-      {mode === "browser" ? (
+      {mode === "oauth" ? (
+        <div
+          style={{
+            background: "var(--blue-light)",
+            border: "1px solid #BFDBFE",
+            borderRadius: 8,
+            padding: "12px 14px",
+            marginBottom: 20,
+            fontSize: 12.5,
+            color: "#1E40AF",
+          }}
+        >
+          Uses LinkedIn&apos;s official Sign In (OIDC) to verify who you are—no password stored on our servers.
+          After you return here, paste <strong>session cookies</strong> (or use browser sign-in locally) so campaigns
+          and Unibox can run; OAuth alone does not send connection requests.
+        </div>
+      ) : mode === "browser" ? (
         <div
           style={{
             background: "var(--green-light, #ecfdf5)",
@@ -289,13 +341,15 @@ export function ConnectAccountModal({ open, onClose }: ConnectAccountModalProps)
             type="email"
             className="form-input"
             autoComplete="off"
-            required
+            required={mode !== "oauth"}
             disabled={busy}
           />
           <div className="form-hint">
-            {mode === "password"
-              ? "Used to identify this seat in your workspace."
-              : "Used to identify this seat in your workspace (session import does not store your password)."}
+            {mode === "oauth"
+              ? "Required if LinkedIn does not share your email in OIDC. Otherwise we use the verified address from LinkedIn."
+              : mode === "password"
+                ? "Used to identify this seat in your workspace."
+                : "Used to identify this seat in your workspace (session import does not store your password)."}
           </div>
         </div>
         {mode === "password" ? (

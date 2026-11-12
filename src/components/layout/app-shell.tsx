@@ -12,6 +12,7 @@ type AppShellProps = {
   workspaceInitials: string;
   showSignOut?: boolean;
   liveMode?: boolean;
+  linkedinOAuthEnabled?: boolean;
 };
 
 export function AppShell({
@@ -21,6 +22,7 @@ export function AppShell({
   workspaceInitials,
   showSignOut,
   liveMode,
+  linkedinOAuthEnabled = false,
 }: AppShellProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -53,7 +55,7 @@ export function AppShell({
         </button>
         {children}
       </main>
-      <AppModals liveMode={liveMode} />
+      <AppModals liveMode={liveMode} linkedinOAuthEnabled={linkedinOAuthEnabled} />
     </div>
   );
 }
