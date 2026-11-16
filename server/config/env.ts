@@ -96,11 +96,27 @@ export const env = {
   get redisTls() {
     return redisConfig().tls;
   },
-  /** Interactive Chromium window for LinkedIn (local dev). Not usable on typical cloud hosts without a remote browser product. */
+  /**
+   * How "Sign in with browser" shows LinkedIn to the user:
+   * - "window": a Chromium window on the machine running Reachly. Only visible when that machine is the
+   *   user's own computer (local development).
+   * - "remote": a headless Chromium on the server, streamed into the Reachly page. Works when deployed.
+   * - "off": the option is hidden.
+   * Defaults to "remote" in production and "window" otherwise; override with BROWSER_CONNECT_MODE.
+   */
+  get browserConnectMode(): "window" | "remote" | "off" {
+    const explicit = read("BROWSER_CONNECT_MODE")?.toLowerCase();
+    if (explicit === "window" || explicit === "remote" || explicit === "off") return explicit;
+    if (read("BROWSER_CONNECT_ENABLED") === "false") return "off";
+    return env.isProduction ? "remote" : "window";
+  },
+  /** Streamed sign-ins each hold a Chromium in memory; cap how many run at once (BROWSER_CONNECT_MAX). */
+  get browserConnectMax() {
+    const n = Number(read("BROWSER_CONNECT_MAX"));
+    return Number.isInteger(n) && n > 0 ? n : 3;
+  },
   get browserConnectEnabled() {
-    if (read("BROWSER_CONNECT_ENABLED") === "true") return true;
-    if (read("BROWSER_CONNECT_ENABLED") === "false") return false;
-    return (process.env.NODE_ENV || "development") !== "production";
+    return env.browserConnectMode !== "off";
   },
   get jwtSecret() {
     return read("JWT_SECRET");

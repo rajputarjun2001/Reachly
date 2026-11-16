@@ -312,7 +312,13 @@ async function createAccountFromBrowserSession(
     status: "connecting",
     ...(await networkFieldsForCreate(ctx.workspaceId, input)),
   });
-  await applyImportedSession(account, cookies, "connect_browser");
+  try {
+    await applyImportedSession(account, cookies, "connect_browser");
+  } catch (err) {
+    // Nothing was connected: remove the placeholder so the user can simply try again.
+    await account.deleteOne().catch(() => undefined);
+    throw err;
+  }
   return String(account._id);
 }
 
@@ -461,20 +467,23 @@ export async function startBrowserConnect(
   }
   const label = input.label ? String(input.label).trim() : undefined;
   const dailyLimit = await resolveAccountDailyLimit(ctx.workspaceId, input.dailyLimit);
-  // Validate now so a bad proxy is reported before the sign-in window opens.
-  await networkFieldsForCreate(ctx.workspaceId, input);
   const network: NetworkInput = { proxyUrl: input.proxyUrl, timezone: input.timezone };
 
-  if (!env.browserConnectEnabled) {
-    throw unprocessable(
-      "Browser sign-in only works when Reachly runs on your computer (npm run dev). On Render and other cloud hosts, paste session cookies or use email and password.",
-    );
+  const mode = env.browserConnectMode;
+  if (mode === "off") {
+    throw unprocessable("Browser sign-in is turned off on this server. Paste session cookies or use email and password.");
   }
+  // Validates the proxy before any browser opens. Remote mode then signs in through the account's proxy
+  // and timezone, so LinkedIn sees the sign-in from the same place the account's later sessions will come from.
+  const fields = await networkFieldsForCreate(ctx.workspaceId, input);
+  const browser = mode === "remote" ? browserOptions({ ...fields, containerPort: null }) : undefined;
 
   try {
     return await browserConnect.startBrowserConnectSession({
       workspaceId: String(ctx.workspaceId),
       userId: String(ctx.userId),
+      mode,
+      browser,
       onSuccess: (cookies) => createAccountFromBrowserSession(ctx, cookies, { linkedinEmail, label, dailyLimit, ...network }),
     });
   } catch (err) {
@@ -482,23 +491,34 @@ export async function startBrowserConnect(
     if (message === "BROWSER_CONNECT_IN_PROGRESS") {
       throw conflict("A browser sign-in is already in progress for this workspace. Finish or cancel it first.");
     }
+    if (message === "BROWSER_CONNECT_BUSY") {
+      throw new AppError(
+        503,
+        "The server is busy with other LinkedIn sign-ins. Try again in a few minutes, or use Paste session cookies.",
+        "BROWSER_CONNECT_BUSY",
+      );
+    }
     console.error("[accounts] browser connect failed:", message);
-    if (/Executable doesn't exist|Failed to launch/i.test(message)) {
+    if (message === ERRORS.PROXY_FAILED) throw unprocessable(PROXY_FAILED_MESSAGE, ERRORS.PROXY_FAILED);
+    const remote = mode === "remote";
+    if (/Executable doesn't exist|Failed to launch|Missing X server|\$DISPLAY/i.test(message)) {
       throw unprocessable(
-        "Chromium is missing or could not start. In the project folder run: npm run browsers:install — then stop and restart npm run dev. Or use Paste session cookies instead.",
+        remote
+          ? "The server could not start its browser. Check that Chromium was installed during the build (npm run browsers:install) and that the server has enough memory, or use Paste session cookies instead."
+          : "Chromium is missing or could not start. In the project folder run: npm run browsers:install — then stop and restart npm run dev. Or use Paste session cookies instead.",
         "BROWSER_LAUNCH_FAILED",
       );
     }
     if (/ERR_NAME_NOT_RESOLVED|ERR_INTERNET_DISCONNECTED|ERR_NETWORK|TIMED_OUT|Timeout/i.test(message)) {
       throw unprocessable(
-        "Reachly could not load LinkedIn in the local browser (network or timeout). Check your internet or use Paste session cookies.",
+        "Reachly could not load LinkedIn in the sign-in browser (network or timeout). Try again, or use Paste session cookies.",
         "BROWSER_LAUNCH_FAILED",
       );
     }
     throw unprocessable(
       message
-        ? `Could not open the LinkedIn browser: ${message}`
-        : "Could not open the LinkedIn browser. Use Paste session cookies, or run npm run browsers:install and restart npm run dev.",
+        ? `Could not open the LinkedIn browser: ${message.split("\n")[0]}`
+        : "Could not open the LinkedIn browser. Use Paste session cookies instead.",
       "BROWSER_LAUNCH_FAILED",
     );
   }
@@ -508,6 +528,34 @@ export function browserConnectStatus(ctx: AuthContext, sessionId: string) {
   const snap = browserConnect.getBrowserConnectSession(String(ctx.workspaceId), sessionId);
   if (!snap) throw notFound("Browser sign-in session not found or expired");
   return snap;
+}
+
+/** JPEG of the streamed sign-in page. 404 once the sign-in has finished, failed or expired. */
+export async function browserConnectFrame(ctx: AuthContext, sessionId: string): Promise<Buffer> {
+  const frame = await browserConnect.captureBrowserConnectFrame(String(ctx.workspaceId), sessionId);
+  if (!frame) throw notFound("Browser sign-in session not found or no longer running");
+  return frame;
+}
+
+/** Forwards one click, keystroke or scroll from the Reachly page to the streamed sign-in page. */
+export async function browserConnectInput(ctx: AuthContext, sessionId: string, input: unknown) {
+  const raw = (input ?? {}) as Record<string, unknown>;
+  let event: linkedinActions.LoginInput;
+  if (raw.type === "click") event = { type: "click", x: Number(raw.x), y: Number(raw.y) };
+  else if (raw.type === "type") event = { type: "type", text: String(raw.text ?? "") };
+  else if (raw.type === "key") event = { type: "key", key: String(raw.key ?? "") };
+  else if (raw.type === "scroll") event = { type: "scroll", deltaY: Number(raw.deltaY) };
+  else throw badRequest("Unknown input type");
+
+  let delivered: boolean;
+  try {
+    delivered = await browserConnect.sendBrowserConnectInput(String(ctx.workspaceId), sessionId, event);
+  } catch (err) {
+    if ((err as Error).message === "INVALID_INPUT") throw badRequest("Invalid input");
+    throw err;
+  }
+  if (!delivered) throw notFound("Browser sign-in session not found or no longer running");
+  return { delivered: true };
 }
 
 export async function cancelBrowserConnect(ctx: AuthContext, sessionId: string) {

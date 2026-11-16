@@ -149,6 +149,11 @@ function parseNameValuePairs(text: string): SessionCookie[] | null {
 
 /** Parses pasted li_at, Cookie header-style pairs, or JSON cookie exports into Playwright cookies. */
 export function parseLinkedInSessionCookies(raw: unknown): SessionCookie[] {
+  // Cookies read straight from a browser (the "Sign in with browser" flow) arrive as objects, not text.
+  if (Array.isArray(raw)) return normalizeCookieArray(raw);
+  const asObject = asRecord(raw);
+  if (asObject && Array.isArray(asObject.cookies)) return normalizeCookieArray(asObject.cookies);
+
   const text = String(raw ?? "").trim();
   if (!text) throw badRequest("Session cookies are required.");
 

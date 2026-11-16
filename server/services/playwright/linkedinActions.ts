@@ -9,6 +9,8 @@ export type SessionCookie = Cookie;
 export const USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 export const VIEWPORT = { width: 1280, height: 800 };
+/** Smaller page for the streamed sign-in, so its text stays readable when scaled into a dialog. */
+export const REMOTE_LOGIN_VIEWPORT = { width: 1024, height: 720 };
 const NAV_TIMEOUT = 45000;
 const LOGIN_FIELD_TIMEOUT = 30_000;
 const LINKEDIN_ORIGIN = "https://www.linkedin.com";
@@ -233,11 +235,12 @@ async function openBrowser({
   proxy,
   timezoneId,
   cookies,
-}: BrowserOptions & { cookies?: SessionCookie[] }): Promise<Session> {
+  viewport = VIEWPORT,
+}: BrowserOptions & { cookies?: SessionCookie[]; viewport?: { width: number; height: number } }): Promise<Session> {
   const browser = await launchChromium(wsEndpoint);
   const context = await browser.newContext({
     userAgent: userAgentFor(browser),
-    viewport: VIEWPORT,
+    viewport,
     locale: "en-US",
     timezoneId: timezoneId || "UTC",
     extraHTTPHeaders: { "Accept-Language": "en-US,en;q=0.9" },
@@ -453,29 +456,133 @@ export function hasLinkedInSession(cookies: SessionCookie[], pageUrl: string): b
   return true;
 }
 
-/** Opens a visible Chromium window on the Reachly server for the user to sign in manually. */
-export async function openManualLoginBrowser(opts: BrowserOptions = {}): Promise<Session> {
-  const browser = await launchChromium(opts.wsEndpoint, { headless: false });
-  const context = await browser.newContext({
-    userAgent: USER_AGENT,
-    viewport: VIEWPORT,
-    locale: "en-US",
-    timezoneId: "UTC",
-    extraHTTPHeaders: { "Accept-Language": "en-US,en;q=0.9" },
-  });
-  const page = await context.newPage();
-  page.setDefaultTimeout(LOGIN_FIELD_TIMEOUT);
-  // Feed first: if a session already exists in this browser, LinkedIn lands on the feed instead of the login form.
-  await goto(page, "https://www.linkedin.com/feed/", "load");
-  await page.waitForTimeout(800);
-  if (!hasLinkedInSession(await context.cookies(), page.url()) && isLoginUrl(page.url())) {
-    await dismissCookieBanner(page);
+const isLinkedInHost = (url: string) => {
+  try {
+    const { protocol, hostname } = new URL(url);
+    if (protocol !== "http:" && protocol !== "https:") return true; // about:blank, chrome-error:, data:
+    return hostname === "linkedin.com" || hostname.endsWith(".linkedin.com");
+  } catch {
+    return true;
   }
-  if (!hasLinkedInSession(await context.cookies(), page.url()) && isLoginUrl(page.url())) {
-    await goto(page, "https://www.linkedin.com/login", "load");
-    await dismissCookieBanner(page);
+};
+
+/**
+ * Opens a browser on the Reachly server for the user to sign in to LinkedIn themselves.
+ * - default: a visible Chromium window (only useful when the server is the user's own computer).
+ * - `remote`: headless, driven through captureLoginFrame() / sendLoginInput() so the page can be shown
+ *   inside Reachly on a deployed server. It uses the account's proxy and timezone, so LinkedIn sees the
+ *   sign-in from the same place later sessions will come from.
+ */
+export async function openManualLoginBrowser(opts: BrowserOptions & { remote?: boolean } = {}): Promise<Session> {
+  let session: Session;
+  if (opts.remote) {
+    session = await openBrowser({
+      wsEndpoint: opts.wsEndpoint,
+      proxy: opts.proxy,
+      timezoneId: opts.timezoneId,
+      viewport: REMOTE_LOGIN_VIEWPORT,
+    });
+    const { context, page } = session;
+    // The user can only see and drive this one tab, and it exists to sign in to LinkedIn: close pop-ups
+    // and return from anywhere else, so the server's browser cannot be used to browse other sites.
+    context.on("page", (other) => {
+      if (other !== page) void other.close().catch(() => undefined);
+    });
+    page.on("framenavigated", (frame) => {
+      if (frame === page.mainFrame() && !isLinkedInHost(frame.url())) {
+        void page.goto(`${LINKEDIN_ORIGIN}/login`).catch(() => undefined);
+      }
+    });
+  } else {
+    const browser = await launchChromium(opts.wsEndpoint, { headless: false });
+    const context = await browser.newContext({
+      userAgent: userAgentFor(browser),
+      viewport: VIEWPORT,
+      locale: "en-US",
+      timezoneId: opts.timezoneId || "UTC",
+      extraHTTPHeaders: { "Accept-Language": "en-US,en;q=0.9" },
+      ...(opts.proxy ? { proxy: opts.proxy } : {}),
+    });
+    session = { browser, context, page: await context.newPage() };
   }
-  return { browser, context, page };
+  const { context, page } = session;
+  try {
+    page.setDefaultTimeout(LOGIN_FIELD_TIMEOUT);
+    // Feed first: if a session already exists in this browser, LinkedIn lands on the feed instead of the login form.
+    await goto(page, "https://www.linkedin.com/feed/", "load");
+    await page.waitForTimeout(800);
+    if (!hasLinkedInSession(await context.cookies(), page.url()) && isLoginUrl(page.url())) {
+      await dismissCookieBanner(page);
+    }
+    if (!hasLinkedInSession(await context.cookies(), page.url()) && isLoginUrl(page.url())) {
+      await goto(page, "https://www.linkedin.com/login", "load");
+      await dismissCookieBanner(page);
+    }
+  } catch (err) {
+    await session.browser.close().catch(() => undefined);
+    throw err;
+  }
+  return session;
+}
+
+/** What the user did in the streamed sign-in page. Coordinates are in pixels of the frame image. */
+export type LoginInput =
+  | { type: "click"; x: number; y: number }
+  | { type: "type"; text: string }
+  | { type: "key"; key: string }
+  | { type: "scroll"; deltaY: number };
+
+/** Keys a sign-in form needs. Anything else (function keys, shortcuts) is not forwarded. */
+export const LOGIN_INPUT_KEYS = new Set([
+  "Enter",
+  "Backspace",
+  "Delete",
+  "Tab",
+  "Escape",
+  "ArrowLeft",
+  "ArrowRight",
+  "ArrowUp",
+  "ArrowDown",
+  "Home",
+  "End",
+]);
+
+/** A JPEG of what the remote sign-in page currently shows. */
+export async function captureLoginFrame(session: PlaywrightSession): Promise<Buffer> {
+  return session.page.screenshot({ type: "jpeg", quality: 60, timeout: 10_000 });
+}
+
+/** Replays one user action in the remote sign-in page. Throws on input it does not recognise. */
+export async function sendLoginInput(session: PlaywrightSession, input: LoginInput): Promise<void> {
+  const { page } = session;
+  switch (input.type) {
+    case "click": {
+      const size = page.viewportSize() ?? REMOTE_LOGIN_VIEWPORT;
+      const x = Math.min(Math.max(Number(input.x), 0), size.width);
+      const y = Math.min(Math.max(Number(input.y), 0), size.height);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) throw new Error("INVALID_INPUT");
+      await page.mouse.click(x, y);
+      return;
+    }
+    case "type": {
+      const text = String(input.text ?? "");
+      if (!text || text.length > 500) throw new Error("INVALID_INPUT");
+      await page.keyboard.type(text, { delay: 25 });
+      return;
+    }
+    case "key":
+      if (!LOGIN_INPUT_KEYS.has(input.key)) throw new Error("INVALID_INPUT");
+      await page.keyboard.press(input.key);
+      return;
+    case "scroll": {
+      const deltaY = Math.min(Math.max(Number(input.deltaY), -2000), 2000);
+      if (!Number.isFinite(deltaY)) throw new Error("INVALID_INPUT");
+      await page.mouse.wheel(0, deltaY);
+      return;
+    }
+    default:
+      throw new Error("INVALID_INPUT");
+  }
 }
 
 export async function closeManualLoginBrowser(session: Session | undefined) {
