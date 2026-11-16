@@ -167,6 +167,32 @@ function AccountCard({
               />
             </div>
           </div>
+          <div className="form-group">
+            <label className="form-label" htmlFor={`proxy-${account.id}`}>
+              Proxy {account.proxy_host ? `(current: ${account.proxy_host})` : "(none set)"}
+            </label>
+            <input
+              id={`proxy-${account.id}`}
+              name="proxy_url"
+              className="form-input"
+              placeholder={
+                account.proxy_host
+                  ? "Leave blank to keep the current proxy"
+                  : "http://user:pass@host:port or host:port:user:pass"
+              }
+              autoComplete="off"
+              spellCheck={false}
+            />
+            <div className="form-hint">
+              Residential proxy in this account&apos;s country with a sticky IP. After changing it, paste fresh session
+              cookies so LinkedIn sees one consistent location.
+            </div>
+            {account.proxy_host ? (
+              <label className="form-hint" style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 6 }}>
+                <input type="checkbox" name="remove_proxy" /> Remove proxy (connect directly from the server)
+              </label>
+            ) : null}
+          </div>
           <div style={{ display: "flex", gap: 8 }}>
             <button type="submit" className="btn btn-primary btn-sm" disabled={pending}>Save</button>
             <button type="button" className="btn btn-outline btn-sm" onClick={() => setEditing(false)} disabled={pending}>Cancel</button>

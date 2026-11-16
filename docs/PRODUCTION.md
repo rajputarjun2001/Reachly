@@ -54,7 +54,26 @@ On Linux hosts, if Chromium downloads but fails to start with missing shared lib
 1. **Sign In with LinkedIn (OIDC)** — set `LINKEDIN_CLIENT_ID` and `LINKEDIN_CLIENT_SECRET`; add redirect URL `{NEXT_PUBLIC_SITE_URL}/auth/linkedin/callback` in the LinkedIn Developer Portal. OIDC verifies identity only; after redirect, paste **session cookies** to enable outreach.
 2. **Paste session cookies** — sign in at linkedin.com in your browser, copy `li_at` (+ `JSESSIONID`) from DevTools, connect in Add Account.
 
-**Password login from cloud hosts:** LinkedIn may omit login inputs for datacenter IPs even when the page title looks normal. If logs show `LOGIN_FORM_NOT_FOUND` with `no inputs in DOM`, avoid password connect on Render; prefer OIDC + cookies or cookies-only. There is no supported password-login workaround on cloud hosts without a residential proxy (not implemented).
+**Password login from cloud hosts:** LinkedIn may omit login inputs for datacenter IPs even when the page title looks normal. If logs show `LOGIN_FORM_NOT_FOUND` with `no inputs in DOM`, avoid password connect on Render; prefer OIDC + cookies or cookies-only. Password login from a cloud host needs a residential proxy on the account (see below).
+
+## Proxies (one per LinkedIn account)
+
+LinkedIn ties a session to where it is used. Cookies created on a laptop in India and replayed from a datacenter IP are often rejected, which shows up as `SESSION_EXPIRED` (a redirect loop) on the first profile visit. Give each LinkedIn account its own proxy so LinkedIn always sees it from the same place:
+
+- **Type:** residential or mobile (ISP) proxy. Datacenter proxies are rejected the same way the server's own IP is.
+- **Location:** the country (ideally the city) the account owner normally logs in from.
+- **Sticky IP:** use the provider's sticky / static session option. A rotating IP looks like the account teleporting.
+- **One account per proxy.** Sharing one IP across many accounts links them.
+
+Set it in **LinkedIn Accounts → Add Account → Proxy**, or **Edit** on an existing account. Accepted formats: `http://user:pass@host:port`, `host:port`, `host:port:user:pass`. SOCKS5 works only without a username (Chromium limitation). Reachly opens a test tunnel to LinkedIn when the proxy is saved and names a wrong password or dead proxy immediately. Credentials are stored AES-256-GCM encrypted and never returned by the API.
+
+`LINKEDIN_PROXY_URL` is a fallback for accounts with no proxy of their own (fine for a single-account deployment; do not share it across many accounts).
+
+The browser's timezone follows the account. It is taken from the workspace timezone when the account is connected or reconnected, so set the workspace timezone to match the proxy country first.
+
+After adding or changing a proxy, **paste fresh session cookies**: sign in to LinkedIn again, ideally while your own browser uses the same proxy, so the session is created and used from one location.
+
+A proxy outage is reported as `PROXY_FAILED`; leads stay pending and are retried rather than skipped.
 
 ## Verify locally
 

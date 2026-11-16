@@ -14,6 +14,8 @@ export type LinkedInAccountView = {
   identity_verified: boolean;
   /** Browser session stored for Playwright outreach. */
   outreach_ready: boolean;
+  /** host:port of this account's proxy (credentials are never sent to the client). */
+  proxy_host: string | null;
   daily_limit: number;
   today_sent_count: number;
   last_health_check: string | null;

@@ -407,6 +407,26 @@ export function ConnectAccountModal({ open, onClose, linkedinOAuthEnabled = fals
             <option value="6">6</option>
           </select>
         </div>
+        {mode !== "oauth" ? (
+          <div className="form-group">
+            <label className="form-label" htmlFor="li-proxy">
+              Proxy (optional)
+            </label>
+            <input
+              id="li-proxy"
+              name="proxy_url"
+              className="form-input"
+              placeholder="http://user:pass@host:port or host:port:user:pass"
+              autoComplete="off"
+              spellCheck={false}
+              disabled={busy}
+            />
+            <div className="form-hint">
+              A residential proxy in this account&apos;s own country, with a sticky (non-rotating) IP. Without one,
+              LinkedIn sees the session arrive from the server&apos;s datacenter IP and may reject it. Stored encrypted.
+            </div>
+          </div>
+        ) : null}
         <button type="submit" hidden />
       </form>
     </ModalShell>

@@ -20,6 +20,16 @@ const linkedInAccountSchema = new Schema(
     oauthScopes: String,
     status: { type: String, enum: ACCOUNT_STATUSES, default: "connecting" },
     sessionCookies: { type: String, select: false },
+    /**
+     * Encrypted proxy URL (with credentials) every browser session for this account goes through.
+     * Deliberately not `select: false`: a query that forgot to select it would silently send
+     * LinkedIn traffic from the server's own IP.
+     */
+    proxyUrlEncrypted: String,
+    /** host:port of the proxy, safe to display. */
+    proxyHost: String,
+    /** IANA timezone the browser reports; should match the proxy's (and the user's) country. */
+    timezone: String,
     containerId: String,
     containerPort: Number,
     dailyLimit: { type: Number, default: 10, min: 1 },
@@ -55,6 +65,7 @@ linkedInAccountSchema.set("toJSON", {
   transform(_doc, ret: Record<string, unknown>) {
     delete ret.linkedinPasswordEncrypted;
     delete ret.sessionCookies;
+    delete ret.proxyUrlEncrypted;
     delete ret.oauthAccessTokenEncrypted;
     delete ret.__v;
     return ret;

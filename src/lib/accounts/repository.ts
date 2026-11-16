@@ -26,6 +26,7 @@ function mapAccount(doc: LinkedInAccountDoc, todayKey: string): LinkedInAccountV
     flag_reason: doc.flagReason ?? null,
     identity_verified: Boolean(doc.linkedinSub),
     outreach_ready: doc.status === "active",
+    proxy_host: doc.proxyHost ?? null,
     daily_limit: doc.dailyLimit ?? 10,
     today_sent_count: sentToday,
     last_health_check: iso(doc.lastHealthCheck),
@@ -57,6 +58,7 @@ export async function connectAccount(input: {
   password: string;
   label?: string;
   dailyLimit?: number;
+  proxyUrl?: string;
 }): Promise<LinkedInAccountView | null> {
   const { ctx, todayKey } = await scoped();
   const doc = await accountsDomain.connectAccount(ctx, {
@@ -64,6 +66,7 @@ export async function connectAccount(input: {
     linkedinPassword: input.password,
     label: input.label,
     dailyLimit: input.dailyLimit,
+    proxyUrl: input.proxyUrl,
   });
   return doc ? mapAccount(doc, todayKey) : null;
 }
@@ -73,6 +76,7 @@ export async function connectAccountWithSessionCookies(input: {
   sessionCookies: string;
   label?: string;
   dailyLimit?: number;
+  proxyUrl?: string;
 }): Promise<LinkedInAccountView | null> {
   const { ctx, todayKey } = await scoped();
   const doc = await accountsDomain.connectAccountWithSessionCookies(ctx, {
@@ -80,6 +84,7 @@ export async function connectAccountWithSessionCookies(input: {
     sessionCookies: input.sessionCookies,
     label: input.label,
     dailyLimit: input.dailyLimit,
+    proxyUrl: input.proxyUrl,
   });
   return doc ? mapAccount(doc, todayKey) : null;
 }
@@ -106,7 +111,11 @@ export async function checkAccount(id: string): Promise<AccountHealth> {
   };
 }
 
-export async function updateAccount(id: string, input: { label?: string; dailyLimit?: number }): Promise<void> {
+/** `proxyUrl`: undefined keeps the current proxy, "" removes it. */
+export async function updateAccount(
+  id: string,
+  input: { label?: string; dailyLimit?: number; proxyUrl?: string },
+): Promise<void> {
   const { ctx } = await scoped();
   await accountsDomain.updateAccount(ctx, id, input);
 }
@@ -127,12 +136,14 @@ export async function startBrowserConnect(input: {
   email: string;
   label?: string;
   dailyLimit?: number;
+  proxyUrl?: string;
 }): Promise<BrowserConnectState> {
   const { ctx } = await scoped();
   return accountsDomain.startBrowserConnect(ctx, {
     linkedinEmail: input.email,
     label: input.label,
     dailyLimit: input.dailyLimit,
+    proxyUrl: input.proxyUrl,
   });
 }
 
