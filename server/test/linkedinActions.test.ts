@@ -3,12 +3,15 @@ import { chromium, type Browser } from "playwright";
 import * as li from "../services/playwright/linkedinActions";
 import type { InboxConversation, SessionCookie } from "../services/playwright/linkedinActions";
 
-vi.mock("playwright", () => ({ chromium: { launch: vi.fn(), connect: vi.fn() } }));
+// executablePath must point at a file that exists: linkedinActions refuses to launch without Chromium installed.
+vi.mock("playwright", () => ({
+  chromium: { launch: vi.fn(), connect: vi.fn(), executablePath: () => process.execPath },
+}));
 
 const { SELECTORS: S } = li;
 const COOKIE = [
-  { name: "li_at", value: "v", domain: ".linkedin.com", path: "/" },
-  { name: "JSESSIONID", value: "j", domain: ".linkedin.com", path: "/" },
+  { name: "li_at", value: "v", domain: ".www.linkedin.com", path: "/" },
+  { name: "JSESSIONID", value: "j", domain: ".www.linkedin.com", path: "/", httpOnly: false },
 ] as unknown as SessionCookie[];
 
 type Elements = Record<string, { text?: string }>;
@@ -95,10 +98,7 @@ function fakeBrowser({ pages = {}, afterLoginUrl, onClick = {} }: FakeOptions = 
   const context = {
     addInitScript: vi.fn(async () => undefined),
     addCookies: vi.fn(async () => undefined),
-    cookies: vi.fn(async () => [
-      { name: "li_at", value: "v", domain: ".linkedin.com", path: "/" },
-      { name: "JSESSIONID", value: "j", domain: ".linkedin.com", path: "/" },
-    ]),
+    cookies: vi.fn(async () => COOKIE.map((c) => ({ ...c }))),
     newPage: vi.fn(async () => page),
   };
   const browser = { newContext: vi.fn(async () => context), close: vi.fn(async () => undefined) };
@@ -138,6 +138,29 @@ describe("browser setup", () => {
     expect(browser.close).toHaveBeenCalled();
   });
 
+  it("routes the session through the account proxy and timezone when given", async () => {
+    const { browser } = fakeBrowser({ pages: { "*": {} } });
+    const proxy = { server: "http://proxy.example:8000", username: "u", password: "p" };
+    await li.verifyCookies(COOKIE, { proxy, timezoneId: "Asia/Kolkata" });
+    expect(browser.newContext).toHaveBeenCalledWith(expect.objectContaining({ proxy, timezoneId: "Asia/Kolkata" }));
+  });
+
+  it("opens no proxy and reports UTC when the account has neither", async () => {
+    const { browser } = fakeBrowser({ pages: { "*": {} } });
+    await li.verifyCookies(COOKIE);
+    const options = browser.newContext.mock.calls[0] as unknown as [Record<string, unknown>];
+    expect(options[0]).not.toHaveProperty("proxy");
+    expect(options[0].timezoneId).toBe("UTC");
+  });
+
+  it("advertises the Chrome version of the browser actually running", async () => {
+    const { browser } = fakeBrowser({ pages: { "*": {} } });
+    (browser as unknown as { version: () => string }).version = () => "147.0.7727.15";
+    await li.verifyCookies(COOKIE);
+    const options = browser.newContext.mock.calls[0] as unknown as [{ userAgent: string }];
+    expect(options[0].userAgent).toContain("Chrome/147.0.0.0");
+  });
+
   it("connects to a container browser server when a wsEndpoint is given", async () => {
     fakeBrowser({ pages: { "*": {} } });
     await li.verifyCookies(COOKIE, { wsEndpoint: "ws://127.0.0.1:5000/" });
@@ -157,10 +180,7 @@ describe("loginToLinkedIn", () => {
   it("returns cookies when landing on /feed", async () => {
     const { actions, browser } = fakeBrowser({ afterLoginUrl: "https://www.linkedin.com/feed/" });
     const cookies = await li.loginToLinkedIn("me@x.com", "pw");
-    expect(cookies).toEqual([
-      { name: "li_at", value: "v", domain: ".linkedin.com", path: "/" },
-      { name: "JSESSIONID", value: "j", domain: ".linkedin.com", path: "/" },
-    ]);
+    expect(cookies).toEqual(COOKIE);
     expect(actions).toEqual(
       expect.arrayContaining([
         ["fill", S.loginEmail, "me@x.com"],

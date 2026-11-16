@@ -11,6 +11,7 @@ import { ensureContainer, wsEndpointFor } from "../services/docker/containerMana
 
 vi.mock("../services/scheduler/queues");
 vi.mock("../services/playwright/linkedinActions");
+vi.mock("../services/proxyCheck", () => ({ checkProxy: vi.fn(async () => undefined) }));
 
 useTestDb();
 
@@ -217,6 +218,91 @@ describe("account read endpoints", () => {
     const status = await request(app).get(`/api/accounts/${account._id}/status`).set(fx.auth);
     expect(status.body.data.valid).toBe(false);
     expect(verifyCookies).not.toHaveBeenCalled();
+  });
+});
+
+describe("account proxy", () => {
+  const PROXY = "gate.example.com:7000:user-country-in:secret";
+  const viaSession = (auth: Auth, body: Record<string, unknown>) =>
+    request(app)
+      .post("/api/accounts/connect/session")
+      .set(auth)
+      .send({ linkedinEmail: "proxy@li.com", sessionCookies: IMPORTED_SESSION, ...body });
+
+  it("stores the proxy encrypted, never returns its credentials, and verifies the session through it", async () => {
+    const fx = await createWorkspaceFixture({ timezone: "Asia/Kolkata" });
+    const res = await viaSession(fx.auth, { proxyUrl: PROXY });
+    expect(res.status).toBe(201);
+    expect(res.body.data.proxyHost).toBe("gate.example.com:7000");
+    expect(res.body.data.proxyUrlEncrypted).toBeUndefined();
+    expect(JSON.stringify(res.body)).not.toContain("secret");
+
+    const stored = await LinkedInAccount.findById(res.body.data._id);
+    expect(isEncrypted(stored?.proxyUrlEncrypted)).toBe(true);
+    expect(decrypt(stored!.proxyUrlEncrypted!)).toBe("http://user-country-in:secret@gate.example.com:7000");
+    expect(stored?.timezone).toBe("Asia/Kolkata");
+    expect(verifyCookies).toHaveBeenCalledWith(
+      expect.any(Array),
+      expect.objectContaining({
+        proxy: { server: "http://gate.example.com:7000", username: "user-country-in", password: "secret" },
+        timezoneId: "Asia/Kolkata",
+      }),
+    );
+  });
+
+  it("connects directly when no proxy is given", async () => {
+    const fx = await createWorkspaceFixture();
+    const res = await viaSession(fx.auth, {});
+    expect(res.status).toBe(201);
+    expect(res.body.data.proxyHost).toBeUndefined();
+    expect(verifyCookies.mock.calls[0][1]?.proxy).toBeUndefined();
+  });
+
+  it("rejects a malformed proxy before creating the account", async () => {
+    const fx = await createWorkspaceFixture();
+    const res = await viaSession(fx.auth, { proxyUrl: "gate.example.com" });
+    expect(res.status).toBe(400);
+    expect(await LinkedInAccount.countDocuments()).toBe(0);
+    expect(verifyCookies).not.toHaveBeenCalled();
+  });
+
+  it("reports a proxy that cannot reach LinkedIn instead of a generic failure", async () => {
+    const fx = await createWorkspaceFixture();
+    verifyCookies.mockRejectedValueOnce(new Error("PROXY_FAILED"));
+    const res = await viaSession(fx.auth, { proxyUrl: PROXY });
+    expect(res.status).toBe(422);
+    expect(res.body.error).toMatch(/proxy/i);
+    expect((await LinkedInAccount.findOne({ linkedinEmail: "proxy@li.com" }))?.status).toBe("disconnected");
+  });
+
+  it("PATCH sets, keeps and removes the proxy", async () => {
+    const fx = await createWorkspaceFixture();
+    const account = await createAccount(fx.workspace._id);
+    const patch = (body: Record<string, unknown>) => request(app).patch(`/api/accounts/${account._id}`).set(fx.auth).send(body);
+
+    expect((await patch({ proxyUrl: PROXY })).body.data.proxyHost).toBe("gate.example.com:7000");
+    expect((await patch({ label: "Renamed" })).body.data.proxyHost).toBe("gate.example.com:7000");
+    expect((await patch({ proxyUrl: "not a proxy" })).status).toBe(400);
+    const cleared = await patch({ proxyUrl: "" });
+    expect(cleared.body.data.proxyHost).toBeUndefined();
+    expect((await LinkedInAccount.findById(account._id))?.proxyUrlEncrypted).toBeUndefined();
+  });
+
+  it("uses the account proxy for sends and health checks, falling back to LINKEDIN_PROXY_URL", async () => {
+    const fx = await createWorkspaceFixture();
+    const own = await createAccount(fx.workspace._id);
+    await request(app).patch(`/api/accounts/${own._id}`).set(fx.auth).send({ proxyUrl: PROXY });
+    const bare = await createAccount(fx.workspace._id);
+
+    vi.stubEnv("LINKEDIN_PROXY_URL", "http://fallback.example:9000");
+    try {
+      await runHealthChecks();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+    const servers = verifyCookies.mock.calls.map(([, opts]) => opts?.proxy?.server).sort();
+    expect(servers).toEqual(["http://fallback.example:9000", "http://gate.example.com:7000"]);
+    expect(bare.proxyUrlEncrypted).toBeUndefined();
   });
 });
 

@@ -10,6 +10,9 @@ import { logEvent } from "../services/events";
 import type { SessionCookie } from "../services/playwright/linkedinActions";
 import * as browserConnect from "../services/playwright/browserConnectSessions";
 import { parseLinkedInSessionCookies, normalizeLinkedInCookiesForPlaywright } from "../utils/linkedinCookies";
+import { parseProxyUrl, proxyDisplayHost, proxyToUrl } from "../utils/proxy";
+import { isValidTimezone } from "../utils/schedule";
+import { checkProxy } from "../services/proxyCheck";
 import { oid, type AuthContext } from "./context";
 
 const { ERRORS } = linkedinActions;
@@ -18,6 +21,8 @@ export const CONNECT_LOGIN_FAILED = "Could not connect the LinkedIn account. Ple
 export const INVALID_SESSION_COOKIES =
   "LinkedIn rejected these session cookies. Sign in at linkedin.com, then paste li_at and JSESSIONID (or a full cookie export from DevTools) and try again.";
 export const SESSION_REQUIRED = "SESSION_REQUIRED";
+export const PROXY_FAILED_MESSAGE =
+  "Could not reach LinkedIn through this account's proxy. Check the proxy host, port, username and password, and that the proxy plan is active.";
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export async function workspaceDailyCap(workspaceId: string): Promise<number> {
@@ -34,6 +39,53 @@ export async function resolveAccountDailyLimit(workspaceId: string, requested: u
   if (n > cap) throw badRequest(`Daily limit cannot exceed ${cap} for this workspace`);
   return n;
 }
+
+type NetworkInput = { proxyUrl?: unknown; timezone?: unknown };
+
+/**
+ * Applies proxy / timezone input to an account (not saved here).
+ * `proxyUrl`: undefined leaves it alone, empty or null removes it, anything else replaces it.
+ */
+async function applyNetworkInput(account: LinkedInAccountDoc, input: NetworkInput) {
+  if (input.proxyUrl !== undefined) {
+    const raw = input.proxyUrl === null ? "" : String(input.proxyUrl).trim();
+    if (!raw) {
+      account.set("proxyUrlEncrypted", undefined);
+      account.set("proxyHost", undefined);
+    } else {
+      const proxy = parseProxyUrl(raw);
+      await checkProxy(proxy);
+      account.proxyUrlEncrypted = encrypt(proxyToUrl(proxy));
+      account.proxyHost = proxyDisplayHost(proxy);
+    }
+  }
+  if (input.timezone !== undefined && input.timezone !== null && String(input.timezone).trim()) {
+    if (!isValidTimezone(input.timezone)) throw badRequest("timezone must be a valid IANA timezone");
+    account.timezone = input.timezone;
+  }
+}
+
+/** Validates proxy / timezone input before an account is created, and defaults the timezone to the workspace's. */
+async function networkFieldsForCreate(workspaceId: AuthContext["workspaceId"], input: NetworkInput) {
+  const fields: { proxyUrlEncrypted?: string; proxyHost?: string; timezone?: string } = {};
+  const raw = input.proxyUrl === undefined || input.proxyUrl === null ? "" : String(input.proxyUrl).trim();
+  if (raw) {
+    const proxy = parseProxyUrl(raw);
+    await checkProxy(proxy);
+    fields.proxyUrlEncrypted = encrypt(proxyToUrl(proxy));
+    fields.proxyHost = proxyDisplayHost(proxy);
+  }
+  if (input.timezone !== undefined && input.timezone !== null && String(input.timezone).trim()) {
+    if (!isValidTimezone(input.timezone)) throw badRequest("timezone must be a valid IANA timezone");
+    fields.timezone = input.timezone;
+  } else {
+    const workspace = await Workspace.findById(workspaceId).select("timezone");
+    if (workspace?.timezone) fields.timezone = workspace.timezone;
+  }
+  return fields;
+}
+
+const isProxyFailure = (err: unknown) => (err as Error)?.message === ERRORS.PROXY_FAILED;
 
 async function findAccount(ctx: AuthContext, id: string, { withSecrets = false } = {}): Promise<LinkedInAccountDoc> {
   const query = LinkedInAccount.findOne({ _id: oid(id, "account id"), workspaceId: ctx.workspaceId });
@@ -100,6 +152,7 @@ async function connectSession(account: LinkedInAccountDoc, password: string) {
     }
     account.status = "disconnected";
     await account.save();
+    if (message === ERRORS.PROXY_FAILED) throw unprocessable(PROXY_FAILED_MESSAGE, ERRORS.PROXY_FAILED);
     if (message === ERRORS.INVALID_CREDENTIALS) {
       throw unprocessable("LinkedIn rejected the email or password", ERRORS.INVALID_CREDENTIALS);
     }
@@ -117,7 +170,15 @@ async function applyImportedSession(
 ) {
   const cookies = parseLinkedInSessionCookies(rawCookies);
   await ensureBrowserContainer(account);
-  const verified = await linkedinActions.verifyCookies(cookies, browserOptions(account));
+  let verified: { valid: boolean; error?: string };
+  try {
+    verified = await linkedinActions.verifyCookies(cookies, browserOptions(account));
+  } catch (err) {
+    if (!isProxyFailure(err)) throw err;
+    account.status = "disconnected";
+    await account.save();
+    throw unprocessable(PROXY_FAILED_MESSAGE, ERRORS.PROXY_FAILED);
+  }
   if (!verified.valid) {
     account.status = "disconnected";
     await account.save();
@@ -129,7 +190,7 @@ async function applyImportedSession(
 async function createAccountFromBrowserSession(
   ctx: AuthContext,
   cookies: SessionCookie[],
-  input: { linkedinEmail: string; label?: string; dailyLimit?: number },
+  input: { linkedinEmail: string; label?: string; dailyLimit?: number } & NetworkInput,
 ) {
   const email = input.linkedinEmail.toLowerCase().trim();
   if (await LinkedInAccount.exists({ workspaceId: ctx.workspaceId, linkedinEmail: email })) {
@@ -141,6 +202,7 @@ async function createAccountFromBrowserSession(
     label: input.label,
     dailyLimit: await resolveAccountDailyLimit(ctx.workspaceId, input.dailyLimit),
     status: "connecting",
+    ...(await networkFieldsForCreate(ctx.workspaceId, input)),
   });
   await applyImportedSession(account, cookies, "connect_browser");
   return String(account._id);
@@ -148,7 +210,7 @@ async function createAccountFromBrowserSession(
 
 export async function connectAccountWithSessionCookies(
   ctx: AuthContext,
-  input: { linkedinEmail: unknown; sessionCookies: unknown; dailyLimit?: unknown; label?: unknown },
+  input: { linkedinEmail: unknown; sessionCookies: unknown; dailyLimit?: unknown; label?: unknown } & NetworkInput,
 ) {
   if (!input.linkedinEmail || !EMAIL_RE.test(String(input.linkedinEmail).trim())) {
     throw badRequest("A valid LinkedIn email is required (used as the account id in Reachly)");
@@ -164,6 +226,7 @@ export async function connectAccountWithSessionCookies(
     label: input.label ? String(input.label).trim() : undefined,
     dailyLimit: await resolveAccountDailyLimit(ctx.workspaceId, input.dailyLimit),
     status: "connecting",
+    ...(await networkFieldsForCreate(ctx.workspaceId, input)),
   });
 
   try {
@@ -181,7 +244,7 @@ export async function connectAccountWithSessionCookies(
 
 export async function connectAccount(
   ctx: AuthContext,
-  input: { linkedinEmail: unknown; linkedinPassword: unknown; dailyLimit?: unknown; label?: unknown },
+  input: { linkedinEmail: unknown; linkedinPassword: unknown; dailyLimit?: unknown; label?: unknown } & NetworkInput,
 ) {
   if (!input.linkedinEmail || !EMAIL_RE.test(String(input.linkedinEmail).trim())) {
     throw badRequest("A valid LinkedIn email is required");
@@ -200,6 +263,7 @@ export async function connectAccount(
     linkedinPasswordEncrypted: encrypt(password),
     dailyLimit: await resolveAccountDailyLimit(ctx.workspaceId, input.dailyLimit),
     status: "connecting",
+    ...(await networkFieldsForCreate(ctx.workspaceId, input)),
   });
 
   await connectSession(account, password);
@@ -215,8 +279,13 @@ export async function accountStatus(ctx: AuthContext, id: string) {
   const cookies = getCookies(account);
   let valid = false;
   if (cookies) {
-    const result = await linkedinActions.verifyCookies(cookies, browserOptions(account));
-    valid = Boolean(result.valid);
+    try {
+      const result = await linkedinActions.verifyCookies(cookies, browserOptions(account));
+      valid = Boolean(result.valid);
+    } catch (err) {
+      if (isProxyFailure(err)) throw unprocessable(PROXY_FAILED_MESSAGE, ERRORS.PROXY_FAILED);
+      throw err;
+    }
   }
   const lastHealthCheck = new Date();
   await LinkedInAccount.updateOne({ _id: account._id }, { $set: { lastHealthCheck } });
@@ -233,9 +302,15 @@ export async function accountStatus(ctx: AuthContext, id: string) {
 export async function reconnectAccount(
   ctx: AuthContext,
   id: string,
-  input: { linkedinPassword?: unknown; sessionCookies?: unknown; dailyLimit?: unknown } = {},
+  input: { linkedinPassword?: unknown; sessionCookies?: unknown; dailyLimit?: unknown } & NetworkInput = {},
 ) {
   const account = await findAccount(ctx, id, { withSecrets: true });
+  await applyNetworkInput(account, input);
+  // Accounts connected before timezones existed (or via OIDC) pick up the workspace timezone here.
+  if (!account.timezone) {
+    const workspace = await Workspace.findById(ctx.workspaceId).select("timezone");
+    if (workspace?.timezone) account.timezone = workspace.timezone;
+  }
   if (input.linkedinPassword) account.linkedinPasswordEncrypted = encrypt(String(input.linkedinPassword));
   if (input.dailyLimit !== undefined) account.dailyLimit = await resolveAccountDailyLimit(ctx.workspaceId, input.dailyLimit);
   account.status = "connecting";
@@ -267,7 +342,7 @@ export async function reconnectAccount(
 
 export async function startBrowserConnect(
   ctx: AuthContext,
-  input: { linkedinEmail: unknown; dailyLimit?: unknown; label?: unknown },
+  input: { linkedinEmail: unknown; dailyLimit?: unknown; label?: unknown } & NetworkInput,
 ) {
   if (!input.linkedinEmail || !EMAIL_RE.test(String(input.linkedinEmail).trim())) {
     throw badRequest("A valid LinkedIn email is required (used as the account id in Reachly)");
@@ -278,6 +353,9 @@ export async function startBrowserConnect(
   }
   const label = input.label ? String(input.label).trim() : undefined;
   const dailyLimit = await resolveAccountDailyLimit(ctx.workspaceId, input.dailyLimit);
+  // Validate now so a bad proxy is reported before the sign-in window opens.
+  await networkFieldsForCreate(ctx.workspaceId, input);
+  const network: NetworkInput = { proxyUrl: input.proxyUrl, timezone: input.timezone };
 
   if (!env.browserConnectEnabled) {
     throw unprocessable(
@@ -289,7 +367,7 @@ export async function startBrowserConnect(
     return await browserConnect.startBrowserConnectSession({
       workspaceId: String(ctx.workspaceId),
       userId: String(ctx.userId),
-      onSuccess: (cookies) => createAccountFromBrowserSession(ctx, cookies, { linkedinEmail, label, dailyLimit }),
+      onSuccess: (cookies) => createAccountFromBrowserSession(ctx, cookies, { linkedinEmail, label, dailyLimit, ...network }),
     });
   } catch (err) {
     const message = (err as Error).message;
@@ -330,8 +408,13 @@ export async function cancelBrowserConnect(ctx: AuthContext, sessionId: string) 
   return { cancelled: true };
 }
 
-export async function updateAccount(ctx: AuthContext, id: string, input: { label?: unknown; dailyLimit?: unknown }) {
+export async function updateAccount(
+  ctx: AuthContext,
+  id: string,
+  input: { label?: unknown; dailyLimit?: unknown } & NetworkInput,
+) {
   const account = await findAccount(ctx, id);
+  await applyNetworkInput(account, input);
   if (input.label !== undefined) account.label = input.label ? String(input.label).trim() : undefined;
   if (input.dailyLimit !== undefined) account.dailyLimit = await resolveAccountDailyLimit(ctx.workspaceId, input.dailyLimit);
   await account.save();

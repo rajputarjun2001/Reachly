@@ -25,6 +25,10 @@ function optionalLimit(value: FormDataEntryValue | null): number | undefined {
   return value && Number.isFinite(n) ? n : undefined;
 }
 
+function optionalProxy(value: FormDataEntryValue | null): string | undefined {
+  return String(value ?? "").trim() || undefined;
+}
+
 export async function connectAccountAction(formData: FormData): Promise<AccountActionResult> {
   if (!isBackendConfigured()) return NOT_CONFIGURED;
   const email = String(formData.get("email") ?? "").trim();
@@ -36,6 +40,7 @@ export async function connectAccountAction(formData: FormData): Promise<AccountA
       password,
       label: String(formData.get("label") ?? "").trim() || undefined,
       dailyLimit: optionalLimit(formData.get("daily_limit")),
+      proxyUrl: optionalProxy(formData.get("proxy_url")),
     });
     revalidatePath("/accounts");
     return { success: `Connected ${account?.display_name ?? email}.` };
@@ -57,6 +62,7 @@ export async function connectAccountWithSessionCookiesAction(formData: FormData)
       sessionCookies,
       label: String(formData.get("label") ?? "").trim() || undefined,
       dailyLimit: optionalLimit(formData.get("daily_limit")),
+      proxyUrl: optionalProxy(formData.get("proxy_url")),
     });
     revalidatePath("/accounts");
     return { success: `Connected ${account?.display_name ?? email}.` };
@@ -95,9 +101,12 @@ export async function checkAccountAction(id: string): Promise<{ error?: string; 
 export async function updateAccountAction(id: string, formData: FormData): Promise<AccountActionResult> {
   if (!isBackendConfigured()) return NOT_CONFIGURED;
   try {
+    // Blank proxy field keeps the stored proxy; the checkbox removes it.
+    const proxyUrl = formData.get("remove_proxy") ? "" : optionalProxy(formData.get("proxy_url"));
     await updateAccount(id, {
       label: String(formData.get("label") ?? "").trim(),
       dailyLimit: optionalLimit(formData.get("daily_limit")),
+      proxyUrl,
     });
     revalidatePath("/accounts");
     return { success: "Account updated." };
@@ -122,6 +131,7 @@ export async function startBrowserConnectAction(formData: FormData): Promise<Bro
       email,
       label: String(formData.get("label") ?? "").trim() || undefined,
       dailyLimit: optionalLimit(formData.get("daily_limit")),
+      proxyUrl: optionalProxy(formData.get("proxy_url")),
     });
     return { sessionId: snap.sessionId, status: snap.status };
   } catch (err) {

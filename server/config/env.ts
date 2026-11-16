@@ -126,6 +126,10 @@ export const env = {
   get dockerHostAddress() {
     return read("DOCKER_HOST_ADDRESS") || "127.0.0.1";
   },
+  /** Fallback proxy for LinkedIn accounts that have none of their own (single-account setups). */
+  get linkedinProxyUrl() {
+    return read("LINKEDIN_PROXY_URL");
+  },
   get linkedinClientId() {
     return read("LINKEDIN_CLIENT_ID");
   },

@@ -115,6 +115,8 @@ export async function processConnectionJob(job: JobLike<ConnectionJobData>): Pro
     return skip(ctx, "connect_unavailable");
   }
   if (result.flagged) return skip(ctx, "account_flagged", { error: result.error });
+  // A proxy outage is our infrastructure failing, not the lead: keep the lead pending for a later run.
+  if (result.error === ERRORS.PROXY_FAILED) throw new Error(`Connection request failed: ${ERRORS.PROXY_FAILED}`);
 
   const attempts = job.opts?.attempts || 1;
   if ((job.attemptsMade || 0) + 1 >= attempts) {

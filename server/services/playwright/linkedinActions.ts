@@ -2,6 +2,7 @@ import fs from "fs";
 import { chromium, type Browser, type BrowserContext, type Cookie, type Frame, type Page } from "playwright";
 import { normalizeLinkedInCookiesForPlaywright } from "../../utils/linkedinCookies";
 import { normalizeLinkedinUrl } from "../../utils/linkedinUrl";
+import type { ProxySettings } from "../../utils/proxy";
 
 export type SessionCookie = Cookie;
 
@@ -54,6 +55,7 @@ export const ERRORS = {
   ALREADY_PENDING: "ALREADY_PENDING",
   CONNECT_UNAVAILABLE: "CONNECT_UNAVAILABLE",
   MESSAGE_UNAVAILABLE: "MESSAGE_UNAVAILABLE",
+  PROXY_FAILED: "PROXY_FAILED",
 } as const;
 export type LinkedInError = (typeof ERRORS)[keyof typeof ERRORS];
 
@@ -84,7 +86,13 @@ const RESTRICTION_PATTERNS = [
 ];
 const INVITATION_LIMIT_PATTERNS = [/weekly invitation limit/i, /reached the (weekly )?limit/i];
 
-export type BrowserOptions = { wsEndpoint?: string };
+export type BrowserOptions = {
+  wsEndpoint?: string;
+  /** Route this account's traffic through its own proxy so LinkedIn sees a consistent, local IP. */
+  proxy?: ProxySettings;
+  /** IANA timezone the browser reports; defaults to UTC. */
+  timezoneId?: string;
+};
 export type ActionResult = { success: boolean; error?: string };
 export type ConnectionState = "connected" | "pending" | "not_connected";
 
@@ -148,14 +156,31 @@ function launchChromium(wsEndpoint?: string, launch?: LaunchOptions) {
   return chromium.launch({ headless: false, args: baseArgs });
 }
 
-async function openBrowser({ wsEndpoint, cookies }: BrowserOptions & { cookies?: SessionCookie[] }): Promise<Session> {
+/** The advertised Chrome version must match the real engine, or the UA contradicts its own client hints. */
+function userAgentFor(browser: Browser): string {
+  try {
+    const major = Number(browser.version().split(".")[0]);
+    if (major > 0) return USER_AGENT.replace(/Chrome\/\d+/, `Chrome/${major}`);
+  } catch {
+    // fall through to the static user agent
+  }
+  return USER_AGENT;
+}
+
+async function openBrowser({
+  wsEndpoint,
+  proxy,
+  timezoneId,
+  cookies,
+}: BrowserOptions & { cookies?: SessionCookie[] }): Promise<Session> {
   const browser = await launchChromium(wsEndpoint);
   const context = await browser.newContext({
-    userAgent: USER_AGENT,
+    userAgent: userAgentFor(browser),
     viewport: VIEWPORT,
     locale: "en-US",
-    timezoneId: "UTC",
+    timezoneId: timezoneId || "UTC",
     extraHTTPHeaders: { "Accept-Language": "en-US,en;q=0.9" },
+    ...(proxy ? { proxy } : {}),
   });
   await context.addInitScript(() => {
     Object.defineProperty(navigator, "webdriver", { get: () => false });
@@ -190,10 +215,14 @@ async function goto(page: Page, url: string, waitUntil: "domcontentloaded" | "lo
   }
 }
 
+const PROXY_ERROR_RE =
+  /ERR_(PROXY_|TUNNEL_CONNECTION_FAILED|NO_SUPPORTED_PROXIES|SOCKS_CONNECTION|INVALID_AUTH_CREDENTIALS|MANDATORY_PROXY)/i;
+
 /** Redirect loops on profile/auth URLs usually mean stale or invalid session cookies. */
 function mapNavigationError(err: unknown): Error {
   const message = (err as Error).message || String(err);
   if (/ERR_TOO_MANY_REDIRECTS/i.test(message)) return new Error(ERRORS.SESSION_EXPIRED);
+  if (PROXY_ERROR_RE.test(message)) return new Error(ERRORS.PROXY_FAILED);
   return err instanceof Error ? err : new Error(message);
 }
 
@@ -428,7 +457,7 @@ export async function loginToLinkedIn(
   password: string,
   opts: BrowserOptions = {},
 ): Promise<SessionCookie[]> {
-  return withBrowser({ wsEndpoint: opts.wsEndpoint }, async ({ context, page }) => {
+  return withBrowser(opts, async ({ context, page }) => {
     const loginUrls = ["https://www.linkedin.com/login", "https://www.linkedin.com/uas/login"];
     let loaded = false;
     for (const loginUrl of loginUrls) {
@@ -482,9 +511,16 @@ export async function verifyCookies(
   opts: BrowserOptions = {},
 ): Promise<{ valid: boolean; error?: string }> {
   if (!cookies || !cookies.length) return { valid: false };
-  return withBrowser({ wsEndpoint: opts.wsEndpoint, cookies }, async ({ page }) => {
+  return withBrowser({ ...opts, cookies }, async ({ page }) => {
     logCookieDebug("verify", normalizeLinkedInCookiesForPlaywright(cookies));
-    const problem = await warmSessionOnFeed(page);
+    let problem: LinkedInError | null;
+    try {
+      problem = await warmSessionOnFeed(page);
+    } catch (err) {
+      // A redirect loop is LinkedIn rejecting the session, not an outage: report it as invalid.
+      if ((err as Error).message === ERRORS.SESSION_EXPIRED) return { valid: false };
+      throw err;
+    }
     if (problem === ERRORS.SESSION_EXPIRED) return { valid: false };
     if (problem === ERRORS.ACCOUNT_RESTRICTED) return { valid: false, error: problem };
     return { valid: true };
@@ -495,7 +531,7 @@ export async function fetchOwnProfile(
   cookies: SessionCookie[],
   opts: BrowserOptions = {},
 ): Promise<{ fullName: string; headline: string; profileUrl: string }> {
-  return withBrowser({ wsEndpoint: opts.wsEndpoint, cookies }, async ({ page }) => {
+  return withBrowser({ ...opts, cookies }, async ({ page }) => {
     const feedProblem = await warmSessionOnFeed(page);
     if (feedProblem === ERRORS.SESSION_EXPIRED) throw new Error(ERRORS.SESSION_EXPIRED);
     if (feedProblem === ERRORS.ACCOUNT_RESTRICTED) throw new Error(ERRORS.ACCOUNT_RESTRICTED);
@@ -515,7 +551,7 @@ export async function sendConnectionRequest(
   opts: BrowserOptions = {},
 ): Promise<ActionResult> {
   try {
-    return await withBrowser({ wsEndpoint: opts.wsEndpoint, cookies }, async ({ page }) => {
+    return await withBrowser({ ...opts, cookies }, async ({ page }) => {
       const feedProblem = await warmSessionOnFeed(page);
       if (feedProblem) return { success: false, error: feedProblem };
 
@@ -575,7 +611,7 @@ export async function sendMessage(
   opts: BrowserOptions = {},
 ): Promise<ActionResult> {
   try {
-    return await withBrowser({ wsEndpoint: opts.wsEndpoint, cookies }, async ({ page }) => {
+    return await withBrowser({ ...opts, cookies }, async ({ page }) => {
       const feedProblem = await warmSessionOnFeed(page);
       if (feedProblem) return { success: false, error: feedProblem };
 
@@ -613,7 +649,7 @@ export async function checkConnectionStatus(
 ): Promise<ActionResult & { results: Record<string, ConnectionState> }> {
   const results: Record<string, ConnectionState> = {};
   try {
-    return await withBrowser({ wsEndpoint: opts.wsEndpoint, cookies }, async ({ page }) => {
+    return await withBrowser({ ...opts, cookies }, async ({ page }) => {
       const feedProblem = await warmSessionOnFeed(page);
       if (feedProblem === ERRORS.SESSION_EXPIRED || feedProblem === ERRORS.ACCOUNT_RESTRICTED) {
         return { success: false, error: feedProblem, results };
@@ -683,7 +719,7 @@ export async function scrapeInbox(
 ): Promise<ActionResult & { conversations?: InboxConversation[] }> {
   const maxThreads = opts.maxThreads ?? 10;
   try {
-    return await withBrowser({ wsEndpoint: opts.wsEndpoint, cookies }, async ({ page }) => {
+    return await withBrowser({ ...opts, cookies }, async ({ page }) => {
       await goto(page, "https://www.linkedin.com/messaging/");
       await humanDelay(page);
       const problem = await detectProblem(page);

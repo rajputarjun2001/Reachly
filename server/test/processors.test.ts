@@ -208,6 +208,18 @@ describe("connectionProcessor", () => {
   });
 });
 
+describe("connectionProcessor proxy outage", () => {
+  it("keeps the lead pending and frees the daily slot when the proxy is down", async () => {
+    const s = await setup();
+    sendConnectionRequest.mockResolvedValue({ success: false, error: "PROXY_FAILED" });
+    // Even on the final attempt: an infrastructure failure must not burn the lead.
+    await expect(processConnectionJob(s.connJob({ attempts: 2 }, 1))).rejects.toThrow("PROXY_FAILED");
+    expect((await Lead.findById(s.lead._id))?.status).toBe("pending");
+    expect((await LinkedInAccount.findById(s.account._id))?.todaySentCount).toBe(0);
+    expect((await LinkedInAccount.findById(s.account._id))?.status).toBe("active");
+  });
+});
+
 describe("messageProcessor", () => {
   async function connectedSetup(wsOverrides?: Record<string, unknown>, campaignOverrides?: Record<string, unknown>) {
     const s = await setup(wsOverrides, campaignOverrides);

@@ -365,6 +365,12 @@ export async function sendConnectionNow(ctx: AuthContext, campaignId: string, le
       throw unprocessable(`Send failed: ${leadAfter.skipReason}`);
     }
     const msg = (err as Error).message || "Connection request failed";
+    if (msg.includes(ERRORS.PROXY_FAILED)) {
+      throw unprocessable(
+        "Could not reach LinkedIn through this account's proxy. Check the proxy settings in LinkedIn Accounts.",
+        ERRORS.PROXY_FAILED,
+      );
+    }
     if (msg.includes(ERRORS.SESSION_EXPIRED) || /ERR_TOO_MANY_REDIRECTS/i.test(msg)) {
       throw unprocessable(
         "LinkedIn session is invalid or expired. In LinkedIn Accounts, paste fresh cookies (li_at and JSESSIONID, or a full DevTools export).",

@@ -2,6 +2,17 @@ import type { SessionCookie } from "../services/playwright/linkedinActions";
 import { badRequest } from "./errors";
 
 const LINKEDIN_DOMAIN = ".linkedin.com";
+const LINKEDIN_WWW_DOMAIN = ".www.linkedin.com";
+
+/**
+ * LinkedIn scopes its auth cookies to .www.linkedin.com, not .linkedin.com. They must be restored on
+ * that exact domain: when LinkedIn rotates or clears one it addresses .www.linkedin.com, so a copy
+ * stored on .linkedin.com survives next to the new one. The browser then sends both, and a rejected
+ * li_at can never be cleared, which turns "session expired" into ERR_TOO_MANY_REDIRECTS.
+ */
+const WWW_SCOPED_COOKIES = new Set(["li_at", "JSESSIONID", "bscookie", "li_rm", "li_a"]);
+/** Cookies LinkedIn's own page script must read (JSESSIONID is the CSRF token source). */
+const SCRIPT_READABLE_COOKIES = new Set(["JSESSIONID"]);
 
 const PASTE_COOKIES_HINT =
   "Paste li_at=…; JSESSIONID=… pairs, or export the full cookie list from DevTools (Application → Cookies → .linkedin.com). A bare li_at value alone is not enough.";
@@ -9,19 +20,45 @@ const PASTE_COOKIES_HINT =
 function isLinkedInCookieDomain(domain: string | undefined): boolean {
   const d = String(domain ?? LINKEDIN_DOMAIN)
     .trim()
-    .toLowerCase();
-  return d.includes("linkedin.com");
+    .toLowerCase()
+    .replace(/^\./, "");
+  return d === "linkedin.com" || d.endsWith(".linkedin.com");
 }
 
-/** Normalizes domains and drops non-LinkedIn cookies before Playwright addCookies / storage. */
+function cookieDomain(name: string, domain: string | undefined): string {
+  if (WWW_SCOPED_COOKIES.has(name)) return LINKEDIN_WWW_DOMAIN;
+  const d = String(domain ?? "")
+    .trim()
+    .toLowerCase();
+  // Bare "linkedin.com" would become a host-only cookie that www.linkedin.com never receives.
+  if (!d || d === "linkedin.com") return LINKEDIN_DOMAIN;
+  return d;
+}
+
+/** The browser stores JSESSIONID with literal quotes ("ajax:123"); DevTools copies often drop them. */
+function cookieValue(name: string, value: string): string {
+  if (name === "JSESSIONID" && /^ajax:/.test(value)) return `"${value}"`;
+  return value;
+}
+
+/**
+ * Prepares cookies for Playwright addCookies / storage: drops non-LinkedIn cookies, puts each cookie on
+ * the domain LinkedIn itself uses, and removes duplicates (last one wins). Also repairs sessions that
+ * were stored by earlier versions, which flattened every domain to .linkedin.com.
+ */
 export function normalizeLinkedInCookiesForPlaywright(cookies: SessionCookie[]): SessionCookie[] {
-  return cookies
-    .filter((c) => Boolean(c.name && c.value) && isLinkedInCookieDomain(c.domain))
-    .map((c) => {
-      const path = String(c.path ?? "/").trim() || "/";
-      const domain = isLinkedInCookieDomain(c.domain) ? LINKEDIN_DOMAIN : String(c.domain ?? LINKEDIN_DOMAIN);
-      return { ...c, domain, path };
-    });
+  const byKey = new Map<string, SessionCookie>();
+  for (const c of cookies) {
+    if (!c.name || !c.value || !isLinkedInCookieDomain(c.domain)) continue;
+    const path = String(c.path ?? "/").trim() || "/";
+    const domain = cookieDomain(c.name, c.domain);
+    const cookie: SessionCookie = { ...c, value: cookieValue(c.name, c.value), domain, path };
+    if (SCRIPT_READABLE_COOKIES.has(c.name)) cookie.httpOnly = false;
+    const key = `${c.name}|${domain}|${path}`;
+    byKey.delete(key);
+    byKey.set(key, cookie);
+  }
+  return [...byKey.values()];
 }
 
 function assertRequiredSessionCookies(cookies: SessionCookie[]) {
@@ -59,10 +96,10 @@ function normalizeCookie(raw: unknown): SessionCookie | null {
   const domain = String(row.domain ?? LINKEDIN_DOMAIN).trim() || LINKEDIN_DOMAIN;
   const path = String(row.path ?? "/").trim() || "/";
   const cookie: SessionCookie = linkedInCookie(name, value);
-  cookie.domain = domain.startsWith(".") ? domain : domain.includes("linkedin.com") ? LINKEDIN_DOMAIN : domain;
+  cookie.domain = domain;
   cookie.path = path;
   if (typeof row.secure === "boolean") cookie.secure = row.secure;
-  if (row.httpOnly === true) cookie.httpOnly = true;
+  if (typeof row.httpOnly === "boolean") cookie.httpOnly = row.httpOnly;
   if (typeof row.expires === "number") cookie.expires = row.expires;
   return cookie;
 }
@@ -107,7 +144,7 @@ function parseNameValuePairs(text: string): SessionCookie[] | null {
     if (name && value) cookies.push(linkedInCookie(name, value));
   }
   if (!cookies.some((c) => c.name === "li_at")) return null;
-  return cookies;
+  return normalizeLinkedInCookiesForPlaywright(cookies);
 }
 
 /** Parses pasted li_at, Cookie header-style pairs, or JSON cookie exports into Playwright cookies. */

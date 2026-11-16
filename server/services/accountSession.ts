@@ -5,6 +5,8 @@ import { normalizeLinkedInCookiesForPlaywright } from "../utils/linkedinCookies"
 import * as linkedinActions from "./playwright/linkedinActions";
 import type { ActionResult, BrowserOptions, SessionCookie } from "./playwright/linkedinActions";
 import { wsEndpointFor } from "./docker/containerManager";
+import { env } from "../config/env";
+import { parseProxyUrl, type ProxySettings } from "../utils/proxy";
 import { logEvent } from "./events";
 
 const { ERRORS } = linkedinActions;
@@ -23,8 +25,24 @@ export function getCookies(account: { sessionCookies?: string | null }): Session
   }
 }
 
-export function browserOptions(account: { containerPort?: number | null }): BrowserOptions {
-  return { wsEndpoint: wsEndpointFor(account) };
+type NetworkFields = { containerPort?: number | null; proxyUrlEncrypted?: string | null; timezone?: string | null };
+
+/**
+ * The account's own proxy, else the LINKEDIN_PROXY_URL fallback, else none (direct connection).
+ * Throws when a proxy is configured but unreadable: sending from the server's IP instead would
+ * be exactly the leak the proxy exists to prevent.
+ */
+export function accountProxy(account: NetworkFields): ProxySettings | undefined {
+  if (account.proxyUrlEncrypted) return parseProxyUrl(decrypt(account.proxyUrlEncrypted));
+  return env.linkedinProxyUrl ? parseProxyUrl(env.linkedinProxyUrl) : undefined;
+}
+
+export function browserOptions(account: NetworkFields): BrowserOptions {
+  return {
+    wsEndpoint: wsEndpointFor(account),
+    proxy: accountProxy(account),
+    timezoneId: account.timezone || undefined,
+  };
 }
 
 export async function pauseCampaignsForAccount(accountId: Types.ObjectId | string, reason: string) {
