@@ -2,6 +2,7 @@ import type { NextFunction, Request, Response } from "express";
 import mongoose from "mongoose";
 import multer from "multer";
 import { env } from "../config/env";
+import { isAppError } from "../utils/errors";
 
 export function notFoundHandler(req: Request, res: Response) {
   res.status(404).json({ error: `Route not found: ${req.method} ${req.originalUrl}` });
@@ -48,7 +49,12 @@ export function describeError(err: unknown): { status: number; message: string }
 export function errorHandler(err: unknown, _req: Request, res: Response, _next: NextFunction) {
   const { status, message } = describeError(err);
   if (status >= 500 && !env.isTest) console.error("[error]", err);
-  const body: { error: string; stack?: string } = { error: message };
+  const body: { error: string; stack?: string; code?: string; details?: Record<string, unknown> } = { error: message };
+  // Only errors that carry details expose their code: the client needs both to continue a multi-step flow.
+  if (isAppError(err) && err.details) {
+    body.code = err.code;
+    body.details = err.details;
+  }
   if (!env.isProduction && status >= 500 && err instanceof Error && err.stack) body.stack = err.stack;
   res.status(status).json(body);
 }

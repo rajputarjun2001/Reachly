@@ -37,6 +37,37 @@ const LOGIN_SUBMIT_SELECTORS = [
   ".login__form_action_container button",
   'button:has-text("Sign in")',
 ];
+/**
+ * Sign-in verification ("checkpoint") page. Best-effort selectors: LinkedIn's known ids first, then
+ * generic fallbacks. Not yet verified against a live account.
+ */
+const CODE_INPUT_SELECTORS = [
+  "#input__email_verification_pin",
+  "#input__phone_verification_pin",
+  'input[name="pin"]',
+  'input[autocomplete="one-time-code"]',
+  'input[name*="verification" i]',
+  'input[id*="verification" i]',
+  'input[name*="otp" i]',
+];
+const CODE_SUBMIT_SELECTORS = [
+  "#email-pin-submit-button",
+  "#two-step-submit-button",
+  'button[type="submit"]',
+  'button:has-text("Submit")',
+  'button:has-text("Verify")',
+];
+const CAPTCHA_SELECTORS = [
+  "#captcha-internal",
+  'iframe[src*="captcha" i]',
+  'iframe[src*="arkoselabs" i]',
+  'iframe[title*="captcha" i]',
+  'iframe[title*="security verification" i]',
+  "[data-sitekey]",
+];
+const CAPTCHA_TEXT_RE = /security (check|verification)|verify (that )?you.?re (a )?human|not a robot|solve (this|the) puzzle/i;
+const APP_APPROVAL_RE = /linkedin app|check your (phone|device|notifications)|approve (this |the )?sign.?in|tap yes/i;
+
 const COOKIE_ACCEPT_SELECTORS = [
   'button[data-control-name*="cookie.consent.accept"]',
   'button[action-type="ACCEPT"]',
@@ -56,6 +87,10 @@ export const ERRORS = {
   CONNECT_UNAVAILABLE: "CONNECT_UNAVAILABLE",
   MESSAGE_UNAVAILABLE: "MESSAGE_UNAVAILABLE",
   PROXY_FAILED: "PROXY_FAILED",
+  /** LinkedIn showed a CAPTCHA. Never solved here: the user must sign in themselves. */
+  CAPTCHA_REQUIRED: "CAPTCHA_REQUIRED",
+  /** LinkedIn rejected the verification code; the same sign-in can be retried with another code. */
+  INVALID_CODE: "INVALID_CODE",
 } as const;
 export type LinkedInError = (typeof ERRORS)[keyof typeof ERRORS];
 
@@ -95,6 +130,32 @@ export type BrowserOptions = {
 };
 export type ActionResult = { success: boolean; error?: string };
 export type ConnectionState = "connected" | "pending" | "not_connected";
+
+/** Where LinkedIn says it sent the sign-in code. */
+export type CodeChannel = "email" | "sms" | "authenticator" | "unknown";
+/** A sign-in LinkedIn will only finish after the account owner proves it is them. */
+export type LoginVerification = {
+  /** "code": the owner types a code. "app": the owner approves the sign-in in the LinkedIn mobile app. */
+  kind: "code" | "app";
+  channel: CodeChannel;
+  /** LinkedIn's own heading on the verification page, shown to the user as-is. */
+  hint: string;
+};
+export type LoginStart =
+  | { status: "success"; cookies: SessionCookie[] }
+  | ({ status: "verification"; session: PlaywrightSession } & LoginVerification);
+export type LoginContinue = { status: "success"; cookies: SessionCookie[] } | ({ status: "verification" } & LoginVerification);
+
+/** `message` is one of ERRORS (so existing `message === ERRORS.X` checks keep working); `detail` is for logs. */
+export class LinkedInLoginError extends Error {
+  constructor(
+    code: string,
+    public detail?: string,
+  ) {
+    super(code);
+    this.name = "LinkedInLoginError";
+  }
+}
 
 export type InboxMessage = { direction: "sent" | "received"; body: string };
 export type InboxConversation = {
@@ -451,38 +512,132 @@ async function detectProblem(page: Page): Promise<LinkedInError | null> {
   return null;
 }
 
-/** Logs in and returns the session cookies. Throws Error(CHALLENGE_REQUIRED | INVALID_CREDENTIALS). */
-export async function loginToLinkedIn(
-  email: string,
-  password: string,
-  opts: BrowserOptions = {},
-): Promise<SessionCookie[]> {
-  return withBrowser(opts, async ({ context, page }) => {
+type LoginState =
+  | { state: "logged_in" }
+  | { state: "invalid_credentials" }
+  | ({ state: "verification"; inputSelector?: string } & LoginVerification)
+  | { state: "captcha" }
+  | { state: "unknown"; hint: string };
+
+async function firstVisible(page: Page, selectors: string[]): Promise<string | null> {
+  for (const selector of selectors) {
+    const count = await page
+      .locator(selector)
+      .locator("visible=true")
+      .count()
+      .catch(() => 0);
+    if (count > 0) return selector;
+  }
+  return null;
+}
+
+async function anyExists(page: Page, selectors: string[]): Promise<boolean> {
+  for (const selector of selectors) {
+    if (await exists(page, selector).catch(() => false)) return true;
+  }
+  return false;
+}
+
+async function pageHeading(page: Page): Promise<string> {
+  const text = await page
+    .locator("h1, h2")
+    .first()
+    .innerText({ timeout: 2000 })
+    .catch(() => "");
+  return text.replace(/\s+/g, " ").trim().slice(0, 200);
+}
+
+function codeChannel(text: string): CodeChannel {
+  if (/authenticator/i.test(text)) return "authenticator";
+  if (/text message|\bsms\b|phone number ending|sent to your phone/i.test(text)) return "sms";
+  if (/e-?mail/i.test(text)) return "email";
+  return "unknown";
+}
+
+/** Works out where a sign-in attempt has landed. Reads the page only; never clicks. */
+async function readLoginState(page: Page, context: BrowserContext): Promise<LoginState> {
+  const url = page.url();
+  if (isLoggedInUrl(url)) return { state: "logged_in" };
+  const onLogin = isLoginUrl(url);
+  const onChallenge = isChallengeUrl(url) || /captcha/i.test(url);
+  if (!onLogin && !onChallenge) {
+    // Interstitials after a successful sign-in (add a phone number, confirm your email, ...): the auth
+    // cookie is only ever set once LinkedIn has accepted the sign-in.
+    const cookies = await context.cookies([LINKEDIN_ORIGIN]);
+    if (cookies.some((c) => c.name === "li_at" && Boolean(c.value))) return { state: "logged_in" };
+  }
+
+  const inputSelector = await firstVisible(page, CODE_INPUT_SELECTORS);
+  const text = await bodyText(page);
+  const hint = await pageHeading(page);
+  if (inputSelector) return { state: "verification", kind: "code", channel: codeChannel(text), hint, inputSelector };
+  if (await anyExists(page, CAPTCHA_SELECTORS)) return { state: "captcha" };
+  if (onLogin) {
+    if (await exists(page, SELECTORS.loginError)) return { state: "invalid_credentials" };
+    for (const root of await loginRoots(page)) {
+      if (await hasLoginUsername(root)) return { state: "invalid_credentials" };
+    }
+  }
+  if (CAPTCHA_TEXT_RE.test(text)) return { state: "captcha" };
+  if (APP_APPROVAL_RE.test(text)) return { state: "verification", kind: "app", channel: "unknown", hint };
+  return { state: "unknown", hint };
+}
+
+/** LinkedIn hops through /login-submit and friends after a form post; wait until it lands somewhere readable. */
+async function settleLoginState(page: Page, context: BrowserContext): Promise<LoginState> {
+  let state = await readLoginState(page, context);
+  for (let i = 0; i < 6 && state.state === "unknown" && /-submit\b/i.test(page.url()); i++) {
+    await page.waitForTimeout(1500);
+    state = await readLoginState(page, context);
+  }
+  return state;
+}
+
+function loginFailure(state: Exclude<LoginState, { state: "logged_in" } | { state: "verification" }>, page: Page) {
+  if (state.state === "invalid_credentials") return new LinkedInLoginError(ERRORS.INVALID_CREDENTIALS);
+  if (state.state === "captcha") return new LinkedInLoginError(ERRORS.CAPTCHA_REQUIRED, page.url());
+  return new LinkedInLoginError(ERRORS.CHALLENGE_REQUIRED, `${page.url()} (${state.hint || "no heading"})`);
+}
+
+/**
+ * Signs in with email and password. Returns the session cookies, or, when LinkedIn wants the owner to
+ * verify the sign-in, the still-open browser session to finish with continueLogin().
+ * The caller owns a returned session and must close it (closeLoginSession).
+ * Throws LinkedInLoginError(INVALID_CREDENTIALS | CAPTCHA_REQUIRED | CHALLENGE_REQUIRED) or LOGIN_FORM_NOT_FOUND.
+ */
+export async function startLogin(email: string, password: string, opts: BrowserOptions = {}): Promise<LoginStart> {
+  const session = await openBrowser(opts);
+  const { context, page } = session;
+  let keepOpen = false;
+  try {
     const loginUrls = ["https://www.linkedin.com/login", "https://www.linkedin.com/uas/login"];
     let loaded = false;
+    let loadError: Error | undefined;
     for (const loginUrl of loginUrls) {
       try {
         await goto(page, loginUrl, "load");
         loaded = true;
         break;
-      } catch {
-        // try alternate login URL
+      } catch (err) {
+        loadError = err as Error;
+        // A dead proxy fails the same way on every URL: report it rather than a missing login page.
+        if (loadError.message === ERRORS.PROXY_FAILED) throw loadError;
       }
     }
-    if (!loaded) throw new Error("LOGIN_PAGE_LOAD_FAILED");
+    if (!loaded) throw new Error(`LOGIN_PAGE_LOAD_FAILED: ${loadError?.message.split("\n")[0] ?? "unknown"}`);
 
     await dismissCookieBanner(page);
     await page.waitForLoadState("networkidle", { timeout: 20_000 }).catch(() => undefined);
     await dismissCookieBanner(page);
     await humanDelay(page);
 
-    if (isLoggedInUrl(page.url())) return exportSessionCookies(context);
+    if (isLoggedInUrl(page.url())) return { status: "success", cookies: await exportSessionCookies(context) };
+    if (await anyExists(page, CAPTCHA_SELECTORS)) throw new LinkedInLoginError(ERRORS.CAPTCHA_REQUIRED, page.url());
 
     page.setDefaultTimeout(LOGIN_FIELD_TIMEOUT);
     const formRoot = await waitForLoginForm(page);
-    let emailSelector: string;
     try {
-      emailSelector = await fillLoginOnRoot(formRoot, page, email, password);
+      await fillLoginOnRoot(formRoot, page, email, password);
     } catch (err) {
       const title = await page.title().catch(() => "");
       const hint = (err as Error).message.includes("dom") ? "no inputs in DOM" : "inputs not fillable";
@@ -495,15 +650,65 @@ export async function loginToLinkedIn(
     ]);
     await humanDelay(page);
 
-    const url = page.url();
-    if (isChallengeUrl(url) || /captcha/i.test(url)) throw new Error(ERRORS.CHALLENGE_REQUIRED);
-    if (!isLoggedInUrl(url)) {
-      if (await exists(page, SELECTORS.loginError)) throw new Error(ERRORS.INVALID_CREDENTIALS);
-      if (await exists(page, emailSelector)) throw new Error(ERRORS.INVALID_CREDENTIALS);
-      throw new Error(ERRORS.CHALLENGE_REQUIRED);
+    const state = await settleLoginState(page, context);
+    if (state.state === "logged_in") return { status: "success", cookies: await exportSessionCookies(context) };
+    if (state.state === "verification") {
+      keepOpen = true;
+      return { status: "verification", kind: state.kind, channel: state.channel, hint: state.hint, session };
     }
-    return exportSessionCookies(context);
-  });
+    throw loginFailure(state, page);
+  } finally {
+    if (!keepOpen) await session.browser.close().catch(() => undefined);
+  }
+}
+
+/**
+ * Finishes a sign-in that startLogin() left waiting. With `code`, types it into LinkedIn's verification
+ * form; without, just re-checks (for "approve in the LinkedIn app"). Never closes the session: the caller
+ * does, once this returns success or throws anything other than INVALID_CODE.
+ */
+export async function continueLogin(session: PlaywrightSession, code?: string): Promise<LoginContinue> {
+  const { context, page } = session;
+  let state = await readLoginState(page, context);
+  if (code && state.state === "verification" && state.kind === "code" && state.inputSelector) {
+    await page.locator(state.inputSelector).locator("visible=true").first().fill(code);
+    await page.waitForTimeout(600 + Math.random() * 900);
+    const submit = await firstVisible(page, CODE_SUBMIT_SELECTORS);
+    if (!submit) throw new LinkedInLoginError(ERRORS.CHALLENGE_REQUIRED, `no submit button at ${page.url()}`);
+    await Promise.all([
+      page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: NAV_TIMEOUT }).catch(() => undefined),
+      page.locator(submit).locator("visible=true").first().click(),
+    ]);
+    await humanDelay(page);
+    state = await settleLoginState(page, context);
+    // Still asking for a code after we submitted one: LinkedIn did not accept it.
+    if (state.state === "verification" && state.kind === "code") throw new LinkedInLoginError(ERRORS.INVALID_CODE);
+  }
+  if (state.state === "logged_in") return { status: "success", cookies: await exportSessionCookies(context) };
+  if (state.state === "verification") {
+    return { status: "verification", kind: state.kind, channel: state.channel, hint: state.hint };
+  }
+  throw loginFailure(state, page);
+}
+
+export async function closeLoginSession(session: PlaywrightSession | undefined) {
+  if (!session) return;
+  await session.browser.close().catch(() => undefined);
+}
+
+/**
+ * Unattended sign-in (session refresh from a worker): nobody is there to type a code, so a verification
+ * step is a failure. Throws Error(CHALLENGE_REQUIRED | INVALID_CREDENTIALS | CAPTCHA_REQUIRED).
+ */
+export async function loginToLinkedIn(
+  email: string,
+  password: string,
+  opts: BrowserOptions = {},
+): Promise<SessionCookie[]> {
+  const result = await startLogin(email, password, opts);
+  if (result.status === "success") return result.cookies;
+  await closeLoginSession(result.session);
+  throw new LinkedInLoginError(ERRORS.CHALLENGE_REQUIRED, `verification by ${result.kind}`);
 }
 
 export async function verifyCookies(

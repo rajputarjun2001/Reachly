@@ -10,6 +10,8 @@ import {
   reconnectAccountAction,
   removeAccountAction,
   updateAccountAction,
+  verifyAccountAction,
+  type AccountActionResult,
 } from "@/app/(app)/accounts/actions";
 import { RefreshSessionModal } from "@/components/accounts/refresh-session-modal";
 
@@ -73,7 +75,19 @@ function AccountCard({
       "",
     );
     if (password === null) return;
-    run(() => reconnectAccountAction(account.id, { password: password || undefined }));
+    run(async () => {
+      let result: AccountActionResult = await reconnectAccountAction(account.id, { password: password || undefined });
+      // LinkedIn may want the owner to verify the sign-in: ask for the code (or app approval) and finish it.
+      for (let attempt = 0; result.verification && attempt < 3; attempt++) {
+        const v = result.verification;
+        const text = [result.error, v.message, v.hint ? `LinkedIn says: "${v.hint}"` : ""].filter(Boolean).join("\n\n");
+        const answer = v.kind === "code" ? window.prompt(text, "") : window.confirm(text) ? "" : null;
+        if (answer === null) return { error: "Verification cancelled. Reconnect to try again." };
+        result = await verifyAccountAction(account.id, v.kind === "code" ? answer : undefined);
+      }
+      if (result.verification) return { error: "LinkedIn still wants verification. Reconnect to try again." };
+      return result;
+    });
   };
 
   const openSessionRefresh = () => setRefreshSessionOpen(true);

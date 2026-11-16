@@ -8,6 +8,8 @@ import { runHealthChecks } from "../services/scheduler/maintenanceProcessor";
 import * as accountsDomain from "../domain/accounts";
 import { decrypt, decryptJSON, isEncrypted } from "../utils/encryption";
 import { ensureContainer, wsEndpointFor } from "../services/docker/containerManager";
+import { _clearLoginChallenges, getLoginChallenge } from "../services/playwright/loginChallenges";
+import type { LoginStart } from "../services/playwright/linkedinActions";
 
 vi.mock("../services/scheduler/queues");
 vi.mock("../services/playwright/linkedinActions");
@@ -20,8 +22,12 @@ const COOKIES = (li as unknown as { COOKIES: unknown[] }).COOKIES;
 const loginToLinkedIn = vi.mocked(li.loginToLinkedIn);
 const verifyCookies = vi.mocked(li.verifyCookies);
 const fetchOwnProfile = vi.mocked(li.fetchOwnProfile);
+const startLogin = vi.mocked(li.startLogin);
+const continueLogin = vi.mocked(li.continueLogin);
+const closeLoginSession = vi.mocked(li.closeLoginSession);
 
-beforeEach(() => {
+beforeEach(async () => {
+  await _clearLoginChallenges();
   vi.clearAllMocks();
 });
 
@@ -76,7 +82,8 @@ describe("POST /api/accounts", () => {
     loginToLinkedIn.mockRejectedValueOnce(new Error("CHALLENGE_REQUIRED"));
     const res = await connect(fx.auth, { linkedinEmail: "c@li.com", linkedinPassword: "pw" });
     expect(res.status).toBe(422);
-    expect(res.body).toEqual({ error: "LinkedIn requires verification. Please log in manually and try again." });
+    expect(res.body).toEqual({ error: accountsDomain.CHALLENGE_MESSAGE });
+    expect(res.body.error).toMatch(/session cookies/);
     const account = await LinkedInAccount.findOne({ linkedinEmail: "c@li.com" });
     expect(account?.status).toBe("flagged");
     expect(account?.flagReason).toBe("CHALLENGE_REQUIRED");
@@ -218,6 +225,129 @@ describe("account read endpoints", () => {
     const status = await request(app).get(`/api/accounts/${account._id}/status`).set(fx.auth);
     expect(status.body.data.valid).toBe(false);
     expect(verifyCookies).not.toHaveBeenCalled();
+  });
+});
+
+describe("password sign-in that LinkedIn wants verified", () => {
+  const SESSION = { browser: {}, context: {}, page: {} } as unknown as Extract<LoginStart, { status: "verification" }>["session"];
+  const codeChallenge = (): LoginStart => ({
+    status: "verification",
+    kind: "code",
+    channel: "email",
+    hint: "Enter the code we sent to a***@gmail.com",
+    session: SESSION,
+  });
+  const verify = (auth: Auth, id: string, body: Record<string, unknown> = {}) =>
+    request(app).post(`/api/accounts/${id}/verify`).set(auth).send(body);
+
+  it("asks for the code, then connects the account once LinkedIn accepts it", async () => {
+    const fx = await createWorkspaceFixture();
+    startLogin.mockResolvedValueOnce(codeChallenge());
+    const res = await connect(fx.auth, { linkedinEmail: "v@li.com", linkedinPassword: "pw" });
+    expect(res.status).toBe(422);
+    expect(res.body.code).toBe("VERIFICATION_REQUIRED");
+    expect(res.body.error).toMatch(/by email/);
+    expect(res.body.details).toMatchObject({ kind: "code", channel: "email", hint: "Enter the code we sent to a***@gmail.com" });
+    const id = res.body.details.accountId as string;
+    expect((await LinkedInAccount.findById(id))?.flagReason).toBe("VERIFICATION_REQUIRED");
+    expect(closeLoginSession).not.toHaveBeenCalled();
+
+    const done = await verify(fx.auth, id, { code: " 123 456 " });
+    expect(done.status).toBe(200);
+    expect(done.body.data.status).toBe("active");
+    expect(continueLogin).toHaveBeenCalledWith(SESSION, "123456");
+    const stored = await LinkedInAccount.findById(id).select("+sessionCookies");
+    expect(decryptJSON(stored!.sessionCookies!)).toEqual(COOKIES);
+    expect(stored?.flagReason).toBeUndefined();
+    expect(closeLoginSession).toHaveBeenCalledWith(SESSION);
+    expect(getLoginChallenge(id)).toBeUndefined();
+  });
+
+  it("lets the owner retry after a wrong code and keeps the sign-in open", async () => {
+    const fx = await createWorkspaceFixture();
+    startLogin.mockResolvedValueOnce(codeChallenge());
+    const id = (await connect(fx.auth, { linkedinEmail: "w@li.com", linkedinPassword: "pw" })).body.details.accountId as string;
+
+    continueLogin.mockRejectedValueOnce(new Error("INVALID_CODE"));
+    const wrong = await verify(fx.auth, id, { code: "000000" });
+    expect(wrong.status).toBe(422);
+    expect(wrong.body.code).toBe("INVALID_CODE");
+    expect(getLoginChallenge(id)).toBeDefined();
+    expect(closeLoginSession).not.toHaveBeenCalled();
+
+    expect((await verify(fx.auth, id, { code: "123456" })).status).toBe(200);
+  });
+
+  it("rejects a missing code, another workspace, and an expired sign-in", async () => {
+    const fx = await createWorkspaceFixture();
+    startLogin.mockResolvedValueOnce(codeChallenge());
+    const id = (await connect(fx.auth, { linkedinEmail: "e@li.com", linkedinPassword: "pw" })).body.details.accountId as string;
+
+    expect((await verify(fx.auth, id, {})).status).toBe(400);
+    expect((await verify(fx.auth, id, { code: "12" })).status).toBe(400);
+    const other = await createWorkspaceFixture();
+    expect((await verify(other.auth, id, { code: "123456" })).status).toBe(404);
+    expect(continueLogin).not.toHaveBeenCalled();
+
+    await _clearLoginChallenges();
+    const expired = await verify(fx.auth, id, { code: "123456" });
+    expect(expired.status).toBe(409);
+    expect(expired.body.error).toBe(accountsDomain.VERIFICATION_EXPIRED_MESSAGE);
+  });
+
+  it("supports approval in the LinkedIn app: still waiting, then connected", async () => {
+    const fx = await createWorkspaceFixture();
+    startLogin.mockResolvedValueOnce({ ...codeChallenge(), kind: "app", channel: "unknown" } as LoginStart);
+    const first = await connect(fx.auth, { linkedinEmail: "app@li.com", linkedinPassword: "pw" });
+    expect(first.body.details.kind).toBe("app");
+    const id = first.body.details.accountId as string;
+
+    continueLogin.mockResolvedValueOnce({ status: "verification", kind: "app", channel: "unknown", hint: "" });
+    const waiting = await verify(fx.auth, id);
+    expect(waiting.status).toBe(422);
+    expect(waiting.body.code).toBe("VERIFICATION_REQUIRED");
+    expect(continueLogin).toHaveBeenLastCalledWith(SESSION, undefined);
+
+    expect((await verify(fx.auth, id)).body.data.status).toBe("active");
+  });
+
+  it("a CAPTCHA after the code ends the sign-in with an honest message", async () => {
+    const fx = await createWorkspaceFixture();
+    startLogin.mockResolvedValueOnce(codeChallenge());
+    const id = (await connect(fx.auth, { linkedinEmail: "cap@li.com", linkedinPassword: "pw" })).body.details.accountId as string;
+    continueLogin.mockRejectedValueOnce(new Error("CAPTCHA_REQUIRED"));
+    const res = await verify(fx.auth, id, { code: "123456" });
+    expect(res.status).toBe(422);
+    expect(res.body.error).toBe(accountsDomain.CAPTCHA_MESSAGE);
+    expect((await LinkedInAccount.findById(id))?.flagReason).toBe("CAPTCHA_REQUIRED");
+    expect(closeLoginSession).toHaveBeenCalledWith(SESSION);
+  });
+
+  it("reconnecting restarts the sign-in and closes the abandoned one", async () => {
+    const fx = await createWorkspaceFixture();
+    startLogin.mockResolvedValueOnce(codeChallenge());
+    const id = (await connect(fx.auth, { linkedinEmail: "r@li.com", linkedinPassword: "pw" })).body.details.accountId as string;
+
+    const again = await request(app).post(`/api/accounts/${id}/reconnect`).set(fx.auth).send({ linkedinPassword: "pw" });
+    expect(again.status).toBe(200);
+    expect(again.body.data.status).toBe("active");
+    expect(closeLoginSession).toHaveBeenCalledWith(SESSION);
+    expect(getLoginChallenge(id)).toBeUndefined();
+  });
+
+  it("explains a hidden sign-in form or a CAPTCHA instead of a generic failure", async () => {
+    const fx = await createWorkspaceFixture();
+    startLogin.mockRejectedValueOnce(new Error("LOGIN_FORM_NOT_FOUND at https://www.linkedin.com/login (LinkedIn Login; no inputs in DOM)"));
+    const blocked = await connect(fx.auth, { linkedinEmail: "b1@li.com", linkedinPassword: "pw" });
+    expect(blocked.status).toBe(422);
+    expect(blocked.body.error).toBe(accountsDomain.LOGIN_BLOCKED_MESSAGE);
+    expect((await LinkedInAccount.findOne({ linkedinEmail: "b1@li.com" }))?.status).toBe("disconnected");
+
+    startLogin.mockRejectedValueOnce(new Error("CAPTCHA_REQUIRED"));
+    const captcha = await connect(fx.auth, { linkedinEmail: "b2@li.com", linkedinPassword: "pw" });
+    expect(captcha.status).toBe(422);
+    expect(captcha.body.error).toBe(accountsDomain.CAPTCHA_MESSAGE);
+    expect((await LinkedInAccount.findOne({ linkedinEmail: "b2@li.com" }))?.status).toBe("flagged");
   });
 });
 

@@ -36,3 +36,15 @@ export type AccountHealth = {
   today_sent_count: number;
   daily_limit: number;
 };
+
+/** A password sign-in LinkedIn will only finish once the account owner verifies it. */
+export type AccountVerification = {
+  accountId: string;
+  /** "code": type the code LinkedIn sent. "app": approve the sign-in in the LinkedIn mobile app. */
+  kind: "code" | "app";
+  channel: "email" | "sms" | "authenticator" | "unknown";
+  /** LinkedIn's own heading on its verification page (may be empty). */
+  hint: string;
+  /** What to tell the user. */
+  message: string;
+};

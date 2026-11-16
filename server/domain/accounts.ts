@@ -9,6 +9,7 @@ import { ensureInboxPoll, removeInboxPoll } from "../services/scheduler/dailySch
 import { logEvent } from "../services/events";
 import type { SessionCookie } from "../services/playwright/linkedinActions";
 import * as browserConnect from "../services/playwright/browserConnectSessions";
+import * as loginChallenges from "../services/playwright/loginChallenges";
 import { parseLinkedInSessionCookies, normalizeLinkedInCookiesForPlaywright } from "../utils/linkedinCookies";
 import { parseProxyUrl, proxyDisplayHost, proxyToUrl } from "../utils/proxy";
 import { isValidTimezone } from "../utils/schedule";
@@ -16,7 +17,15 @@ import { checkProxy } from "../services/proxyCheck";
 import { oid, type AuthContext } from "./context";
 
 const { ERRORS } = linkedinActions;
-export const CHALLENGE_MESSAGE = "LinkedIn requires verification. Please log in manually and try again.";
+export const CHALLENGE_MESSAGE =
+  "LinkedIn asked for a verification Reachly cannot complete from the server. Sign in at linkedin.com in your own browser, then connect this account with session cookies instead.";
+export const CAPTCHA_MESSAGE =
+  "LinkedIn showed a CAPTCHA, which Reachly does not solve. Sign in at linkedin.com in your own browser, then connect this account with session cookies instead.";
+export const LOGIN_BLOCKED_MESSAGE =
+  "LinkedIn did not show its sign-in form to the server, which usually means it distrusts the address the request came from. Add a residential proxy to this account, or connect with session cookies instead.";
+export const VERIFICATION_REQUIRED = "VERIFICATION_REQUIRED";
+export const VERIFICATION_EXPIRED_MESSAGE =
+  "That verification step has expired. Reconnect with the password to start again; LinkedIn will send a new code.";
 export const CONNECT_LOGIN_FAILED = "Could not connect the LinkedIn account. Please try again later.";
 export const INVALID_SESSION_COOKIES =
   "LinkedIn rejected these session cookies. Sign in at linkedin.com, then paste li_at and JSESSIONID (or a full cookie export from DevTools) and try again.";
@@ -135,32 +144,131 @@ async function persistSession(account: LinkedInAccountDoc, cookies: SessionCooki
   );
 }
 
-/** Starts the browser container (if enabled), logs in and stores the session. Throws AppError on failure. */
+function verificationMessage(v: linkedinActions.LoginVerification): string {
+  if (v.kind === "app") return "LinkedIn wants you to approve this sign-in in the LinkedIn mobile app. Approve it, then continue.";
+  const where =
+    v.channel === "email"
+      ? "by email"
+      : v.channel === "sms"
+        ? "by text message"
+        : v.channel === "authenticator"
+          ? "in your authenticator app"
+          : "by email or text message";
+  return `LinkedIn wants a verification code to finish signing in. Enter the code you received ${where}.`;
+}
+
+function verificationRequired(account: LinkedInAccountDoc, v: linkedinActions.LoginVerification) {
+  return new AppError(422, verificationMessage(v), VERIFICATION_REQUIRED, {
+    accountId: String(account._id),
+    kind: v.kind,
+    channel: v.channel,
+    hint: v.hint,
+  });
+}
+
+/** Records why a sign-in failed on the account and throws the matching user-facing error. Always throws. */
+async function failLogin(account: LinkedInAccountDoc, err: unknown): Promise<never> {
+  const message = (err as Error).message || "";
+  const flag = async (reason: string) => {
+    account.status = "flagged";
+    account.flagReason = reason;
+    await account.save();
+  };
+  if (message === ERRORS.CHALLENGE_REQUIRED) {
+    await flag(ERRORS.CHALLENGE_REQUIRED);
+    throw unprocessable(CHALLENGE_MESSAGE, ERRORS.CHALLENGE_REQUIRED);
+  }
+  if (message === ERRORS.CAPTCHA_REQUIRED) {
+    await flag(ERRORS.CAPTCHA_REQUIRED);
+    throw unprocessable(CAPTCHA_MESSAGE, ERRORS.CAPTCHA_REQUIRED);
+  }
+  account.status = "disconnected";
+  await account.save();
+  if (message === ERRORS.PROXY_FAILED) throw unprocessable(PROXY_FAILED_MESSAGE, ERRORS.PROXY_FAILED);
+  if (message === ERRORS.INVALID_CREDENTIALS) {
+    throw unprocessable("LinkedIn rejected the email or password", ERRORS.INVALID_CREDENTIALS);
+  }
+  // Log the detail (URL, page title) for whoever is debugging; never the credentials.
+  console.error("[accounts] LinkedIn login failed:", message, (err as { detail?: string }).detail ?? "");
+  if (/^LOGIN_(FORM_NOT_FOUND|PAGE_LOAD_FAILED|SUBMIT_NOT_FOUND)/.test(message)) {
+    throw unprocessable(LOGIN_BLOCKED_MESSAGE, "LOGIN_BLOCKED");
+  }
+  throw new AppError(502, CONNECT_LOGIN_FAILED);
+}
+
+/**
+ * Starts the browser container (if enabled), signs in and stores the session. When LinkedIn asks the
+ * owner to verify the sign-in, the browser is kept open and VERIFICATION_REQUIRED is thrown; the client
+ * finishes with verifyAccountLogin(). Throws AppError on failure.
+ */
 async function connectSession(account: LinkedInAccountDoc, password: string) {
   await ensureBrowserContainer(account);
+  await loginChallenges.dropLoginChallenge(account._id);
 
-  let cookies: SessionCookie[];
+  let started: linkedinActions.LoginStart;
   try {
-    cookies = await linkedinActions.loginToLinkedIn(account.linkedinEmail, password, browserOptions(account));
+    started = await linkedinActions.startLogin(account.linkedinEmail, password, browserOptions(account));
   } catch (err) {
-    const message = (err as Error).message;
-    if (message === ERRORS.CHALLENGE_REQUIRED) {
-      account.status = "flagged";
-      account.flagReason = ERRORS.CHALLENGE_REQUIRED;
-      await account.save();
-      throw unprocessable(CHALLENGE_MESSAGE, ERRORS.CHALLENGE_REQUIRED);
-    }
-    account.status = "disconnected";
-    await account.save();
-    if (message === ERRORS.PROXY_FAILED) throw unprocessable(PROXY_FAILED_MESSAGE, ERRORS.PROXY_FAILED);
-    if (message === ERRORS.INVALID_CREDENTIALS) {
-      throw unprocessable("LinkedIn rejected the email or password", ERRORS.INVALID_CREDENTIALS);
-    }
-    console.error("[accounts] LinkedIn login failed:", message);
-    throw new AppError(502, CONNECT_LOGIN_FAILED);
+    return failLogin(account, err);
   }
 
-  await persistSession(account, cookies, "connect_password");
+  if (started.status === "verification") {
+    const { session, status: _status, ...verification } = started;
+    await loginChallenges.holdLoginChallenge(account._id, session, verification);
+    account.status = "flagged";
+    account.flagReason = VERIFICATION_REQUIRED;
+    await account.save();
+    throw verificationRequired(account, verification);
+  }
+
+  await persistSession(account, started.cookies, "connect_password");
+}
+
+/**
+ * Finishes a password sign-in that is waiting on the account owner: submits the code they received, or
+ * (for approval in the LinkedIn app) checks whether they have approved yet.
+ */
+export async function verifyAccountLogin(ctx: AuthContext, id: string, input: { code?: unknown } = {}) {
+  const account = await findAccount(ctx, id, { withSecrets: true });
+  const challenge = loginChallenges.getLoginChallenge(account._id);
+  if (!challenge) {
+    await loginChallenges.dropLoginChallenge(account._id);
+    throw conflict(VERIFICATION_EXPIRED_MESSAGE);
+  }
+  const code = String(input.code ?? "").replace(/[\s-]/g, "");
+  if (challenge.kind === "code" && !/^[A-Za-z0-9]{4,12}$/.test(code)) {
+    throw badRequest("Enter the verification code LinkedIn sent you.");
+  }
+  if (challenge.busy) throw conflict("That code is still being checked. Wait a moment.");
+
+  challenge.busy = true;
+  let result: linkedinActions.LoginContinue;
+  try {
+    result = await linkedinActions.continueLogin(challenge.session, challenge.kind === "code" ? code : undefined);
+  } catch (err) {
+    if ((err as Error).message === ERRORS.INVALID_CODE) {
+      // The sign-in is still open: let them try the code again.
+      throw new AppError(422, "LinkedIn did not accept that code. Check it and try again.", ERRORS.INVALID_CODE, {
+        accountId: String(account._id),
+        kind: challenge.kind,
+        channel: challenge.channel,
+        hint: challenge.hint,
+      });
+    }
+    await loginChallenges.dropLoginChallenge(account._id);
+    return failLogin(account, err);
+  } finally {
+    challenge.busy = false;
+  }
+
+  if (result.status === "verification") {
+    Object.assign(challenge, { kind: result.kind, channel: result.channel, hint: result.hint });
+    throw verificationRequired(account, result);
+  }
+
+  await loginChallenges.dropLoginChallenge(account._id);
+  await persistSession(account, result.cookies, "connect_password_verified");
+  return LinkedInAccount.findById(account._id);
 }
 
 async function applyImportedSession(
@@ -425,6 +533,7 @@ export async function removeAccount(ctx: AuthContext, id: string) {
   const account = await findAccount(ctx, id);
   await pauseCampaignsForAccount(account._id, "account_removed");
   await removeInboxPoll(account._id).catch(() => undefined);
+  await loginChallenges.dropLoginChallenge(account._id);
   if (account.containerId) await containerManager.removeContainer(account.containerId).catch(() => undefined);
   await account.deleteOne();
   return { id: String(account._id) };

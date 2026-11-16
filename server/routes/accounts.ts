@@ -55,6 +55,13 @@ accountsRouter.post(
   ),
 );
 
+accountsRouter.post(
+  "/:id/verify",
+  asyncHandler(async (req, res) =>
+    ok(res, await accounts.verifyAccountLogin(ctxOf(req), req.params.id, req.body || {}), "LinkedIn account connected"),
+  ),
+);
+
 accountsRouter.delete(
   "/:id",
   asyncHandler(async (req, res) => ok(res, await accounts.removeAccount(ctxOf(req), req.params.id), "LinkedIn account removed")),

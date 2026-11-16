@@ -5,6 +5,8 @@ export class AppError extends Error {
     public status: number,
     message: string,
     public code?: string,
+    /** Machine-readable extras the client needs to continue (returned in the response body with `code`). */
+    public details?: Record<string, unknown>,
   ) {
     super(message);
     this.name = "AppError";

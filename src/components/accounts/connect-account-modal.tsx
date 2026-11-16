@@ -9,7 +9,9 @@ import {
   connectAccountWithSessionCookiesAction,
   pollBrowserConnectAction,
   startBrowserConnectAction,
+  verifyAccountAction,
 } from "@/app/(app)/accounts/actions";
+import type { AccountVerification } from "@/lib/accounts/types";
 
 type ConnectAccountModalProps = {
   open: boolean;
@@ -40,6 +42,9 @@ export function ConnectAccountModal({ open, onClose, linkedinOAuthEnabled = fals
   const [pending, startTransition] = useTransition();
   const [browserSessionId, setBrowserSessionId] = useState<string | null>(null);
   const [browserStatus, setBrowserStatus] = useState<string | null>(null);
+  /** Set while LinkedIn is waiting for the owner to verify a password sign-in. */
+  const [verification, setVerification] = useState<AccountVerification | null>(null);
+  const [code, setCode] = useState("");
 
   useEffect(() => {
     setBrowserConnectAvailable(isLocalHost());
@@ -51,6 +56,8 @@ export function ConnectAccountModal({ open, onClose, linkedinOAuthEnabled = fals
       setMode(defaultMode(linkedinOAuthEnabled));
       setBrowserSessionId(null);
       setBrowserStatus(null);
+      setVerification(null);
+      setCode("");
       formRef.current?.reset();
     }
   }, [open, linkedinOAuthEnabled]);
@@ -89,7 +96,40 @@ export function ConnectAccountModal({ open, onClose, linkedinOAuthEnabled = fals
     const formData = new FormData(form);
     startTransition(async () => {
       const result = await connectAccountAction(formData);
+      if (result.verification) {
+        setError(null);
+        setCode("");
+        setVerification(result.verification);
+        router.refresh();
+        return;
+      }
       if (result.error) {
+        setError(result.error);
+        router.refresh();
+        return;
+      }
+      onClose();
+      router.refresh();
+    });
+  };
+
+  const submitVerification = () => {
+    if (!verification) return;
+    if (verification.kind === "code" && !code.trim()) {
+      setError("Enter the verification code LinkedIn sent you.");
+      return;
+    }
+    setError(null);
+    startTransition(async () => {
+      const result = await verifyAccountAction(verification.accountId, verification.kind === "code" ? code : undefined);
+      if (result.verification) {
+        setVerification(result.verification);
+        setError(result.error ?? "LinkedIn is still waiting for you to approve the sign-in.");
+        return;
+      }
+      if (result.error) {
+        // The sign-in is over (expired, CAPTCHA, ...): go back to the form with the reason.
+        setVerification(null);
         setError(result.error);
         router.refresh();
         return;
@@ -187,7 +227,11 @@ export function ConnectAccountModal({ open, onClose, linkedinOAuthEnabled = fals
               Close
             </button>
           )}
-          {mode === "oauth" ? (
+          {verification ? (
+            <button type="button" className="btn btn-primary" onClick={submitVerification} disabled={busy}>
+              {pending ? "Checking…" : verification.kind === "code" ? "Verify code" : "I have approved it"}
+            </button>
+          ) : mode === "oauth" ? (
             <button type="button" className="btn btn-primary" onClick={submitOAuth} disabled={busy}>
               Continue with LinkedIn
             </button>
@@ -207,6 +251,53 @@ export function ConnectAccountModal({ open, onClose, linkedinOAuthEnabled = fals
         </>
       }
     >
+      {verification ? (
+        <div style={{ marginBottom: 16 }}>
+          <div
+            style={{
+              background: "var(--blue-light)",
+              border: "1px solid #BFDBFE",
+              borderRadius: 8,
+              padding: "12px 14px",
+              marginBottom: 16,
+              fontSize: 12.5,
+              color: "#1E40AF",
+            }}
+          >
+            {verification.message}
+            {verification.hint ? (
+              <>
+                {" "}
+                LinkedIn says: <em>&ldquo;{verification.hint}&rdquo;</em>
+              </>
+            ) : null}
+          </div>
+          {verification.kind === "code" ? (
+            <div className="form-group">
+              <label className="form-label" htmlFor="li-verification-code">
+                Verification code
+              </label>
+              <input
+                id="li-verification-code"
+                className="form-input"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                value={code}
+                onChange={(e) => setCode(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") submitVerification();
+                }}
+                disabled={busy}
+                autoFocus
+              />
+              <div className="form-hint">
+                The sign-in stays open for 10 minutes. If the code expires, close this and connect again.
+              </div>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+      <div hidden={Boolean(verification)}>
       <div className="flex-center gap-8" style={{ marginBottom: 16, flexWrap: "wrap" }}>
         {linkedinOAuthEnabled ? (
           <button
@@ -429,6 +520,7 @@ export function ConnectAccountModal({ open, onClose, linkedinOAuthEnabled = fals
         ) : null}
         <button type="submit" hidden />
       </form>
+      </div>
     </ModalShell>
   );
 }

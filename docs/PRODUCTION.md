@@ -54,7 +54,13 @@ On Linux hosts, if Chromium downloads but fails to start with missing shared lib
 1. **Sign In with LinkedIn (OIDC)** — set `LINKEDIN_CLIENT_ID` and `LINKEDIN_CLIENT_SECRET`; add redirect URL `{NEXT_PUBLIC_SITE_URL}/auth/linkedin/callback` in the LinkedIn Developer Portal. OIDC verifies identity only; after redirect, paste **session cookies** to enable outreach.
 2. **Paste session cookies** — sign in at linkedin.com in your browser, copy `li_at` (+ `JSESSIONID`) from DevTools, connect in Add Account.
 
-**Password login from cloud hosts:** LinkedIn may omit login inputs for datacenter IPs even when the page title looks normal. If logs show `LOGIN_FORM_NOT_FOUND` with `no inputs in DOM`, avoid password connect on Render; prefer OIDC + cookies or cookies-only. Password login from a cloud host needs a residential proxy on the account (see below).
+**Password login:** Reachly signs in from the server, so LinkedIn sees a new device at the server's (or the account proxy's) address. Expect one of these:
+
+- **Verification code** (email, SMS or authenticator) or **approval in the LinkedIn app**: the Add Account dialog asks for the code and finishes the sign-in. The browser is held open for 10 minutes; the request that submits the code must reach the same server process (fine for the single-process deployment, needs sticky routing if you run several instances).
+- **CAPTCHA**: Reachly does not solve CAPTCHAs. Sign in at linkedin.com yourself and connect with session cookies.
+- **No sign-in form** (`LOGIN_FORM_NOT_FOUND` in logs): LinkedIn distrusts the address. Add a residential proxy to the account (below) or use session cookies.
+
+Sessions refreshed unattended by a worker cannot answer a verification step: the account is flagged and its campaigns pause until someone reconnects it. The verification-page selectors are best-effort and have not been verified against a live LinkedIn account.
 
 ## Proxies (one per LinkedIn account)
 
