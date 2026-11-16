@@ -18,7 +18,8 @@ type Elements = Record<string, { text?: string }>;
 type FakePage = { url?: string; elements?: Elements; body?: string };
 type FakeOptions = {
   pages?: Record<string, FakePage>;
-  afterLoginUrl?: string;
+  /** Where a submit click lands. An array is consumed one URL per submit (sign-in, then verification). */
+  afterLoginUrl?: string | string[];
   onClick?: Record<string, { elements?: Elements; body?: string }>;
 };
 type Action = [string, string, string?];
@@ -31,6 +32,7 @@ type Action = [string, string, string?];
 function fakeBrowser({ pages = {}, afterLoginUrl, onClick = {} }: FakeOptions = {}) {
   const state: { url: string; elements: Elements; body: string } = { url: "about:blank", elements: {}, body: "" };
   const actions: Action[] = [];
+  const nextUrl = () => (Array.isArray(afterLoginUrl) ? afterLoginUrl.shift() : afterLoginUrl);
   const load = (url: string) => {
     const p = pages[url] || pages["*"] || {};
     state.url = p.url || url;
@@ -51,7 +53,8 @@ function fakeBrowser({ pages = {}, afterLoginUrl, onClick = {} }: FakeOptions = 
       click: async () => {
         if (!state.elements[sel]) throw new Error(`No element ${sel}`);
         actions.push(["click", sel]);
-        if (afterLoginUrl && (sel === S.loginSubmit || sel.includes("submit"))) load(afterLoginUrl);
+        const target = sel === S.loginSubmit || sel.includes("submit") ? nextUrl() : undefined;
+        if (target) load(target);
         const effect = onClick[sel];
         if (effect) {
           Object.assign(state.elements, effect.elements || {});
@@ -85,7 +88,8 @@ function fakeBrowser({ pages = {}, afterLoginUrl, onClick = {} }: FakeOptions = 
     }),
     click: vi.fn(async (sel: string) => {
       actions.push(["click", sel]);
-      if (sel === S.loginSubmit && afterLoginUrl) load(afterLoginUrl);
+      const target = sel === S.loginSubmit ? nextUrl() : undefined;
+      if (target) load(target);
     }),
     waitForNavigation: vi.fn(async () => undefined),
     locator,
@@ -205,6 +209,89 @@ describe("loginToLinkedIn", () => {
       afterLoginUrl: "https://www.linkedin.com/login-error",
     });
     await expect(li.loginToLinkedIn("me@x.com", "bad")).rejects.toThrow("INVALID_CREDENTIALS");
+  });
+});
+
+describe("sign-in verification", () => {
+  const CHALLENGE = "https://www.linkedin.com/checkpoint/challenge/abc";
+  const PIN = "#input__email_verification_pin";
+  const PIN_SUBMIT = "#email-pin-submit-button";
+  const codePage = {
+    elements: { [PIN]: {}, [PIN_SUBMIT]: {}, "h1, h2": { text: "Enter the code we sent to a***@gmail.com" } },
+    body: "We sent a code to your email address a***@gmail.com",
+  };
+
+  it("keeps the browser open and reports where the code was sent", async () => {
+    const { browser } = fakeBrowser({ pages: { [CHALLENGE]: codePage }, afterLoginUrl: CHALLENGE });
+    const result = await li.startLogin("me@x.com", "pw");
+    expect(result).toMatchObject({
+      status: "verification",
+      kind: "code",
+      channel: "email",
+      hint: "Enter the code we sent to a***@gmail.com",
+    });
+    expect(browser.close).not.toHaveBeenCalled();
+  });
+
+  it("types the code and returns cookies once LinkedIn accepts it", async () => {
+    const { actions } = fakeBrowser({
+      pages: { [CHALLENGE]: codePage },
+      afterLoginUrl: [CHALLENGE, "https://www.linkedin.com/feed/"],
+    });
+    const started = await li.startLogin("me@x.com", "pw");
+    if (started.status !== "verification") throw new Error("expected verification");
+    const done = await li.continueLogin(started.session, "123456");
+    expect(done).toEqual({ status: "success", cookies: COOKIE });
+    expect(actions).toEqual(expect.arrayContaining([["fill", PIN, "123456"], ["click", PIN_SUBMIT]]));
+  });
+
+  it("reports a rejected code without ending the sign-in", async () => {
+    const { browser } = fakeBrowser({ pages: { [CHALLENGE]: codePage }, afterLoginUrl: [CHALLENGE, CHALLENGE] });
+    const started = await li.startLogin("me@x.com", "pw");
+    if (started.status !== "verification") throw new Error("expected verification");
+    await expect(li.continueLogin(started.session, "000000")).rejects.toThrow("INVALID_CODE");
+    expect(browser.close).not.toHaveBeenCalled();
+  });
+
+  it("recognises SMS and authenticator codes", async () => {
+    for (const [body, channel] of [
+      ["Enter the code we sent by text message to the phone number ending in 42", "sms"],
+      ["Enter the code from your authenticator app", "authenticator"],
+    ] as const) {
+      fakeBrowser({ pages: { [CHALLENGE]: { ...codePage, body } }, afterLoginUrl: CHALLENGE });
+      expect(await li.startLogin("me@x.com", "pw")).toMatchObject({ kind: "code", channel });
+    }
+  });
+
+  it("waits for approval in the LinkedIn app, then finishes without a code", async () => {
+    const appPage = { body: "Check your LinkedIn app. Tap Yes to approve this sign-in." };
+    const { page } = fakeBrowser({ pages: { [CHALLENGE]: appPage }, afterLoginUrl: CHALLENGE });
+    const started = await li.startLogin("me@x.com", "pw");
+    if (started.status !== "verification") throw new Error("expected verification");
+    expect(started.kind).toBe("app");
+    expect(await li.continueLogin(started.session)).toMatchObject({ status: "verification", kind: "app" });
+    await page.goto("https://www.linkedin.com/feed/"); // the owner approved: LinkedIn moves the page on
+    expect(await li.continueLogin(started.session)).toEqual({ status: "success", cookies: COOKIE });
+  });
+
+  it("refuses a CAPTCHA instead of treating it as a code prompt", async () => {
+    const { browser } = fakeBrowser({
+      pages: { [CHALLENGE]: { elements: { "#captcha-internal": {} } } },
+      afterLoginUrl: CHALLENGE,
+    });
+    await expect(li.startLogin("me@x.com", "pw")).rejects.toThrow("CAPTCHA_REQUIRED");
+    expect(browser.close).toHaveBeenCalled();
+  });
+
+  it("treats a post-sign-in interstitial as signed in", async () => {
+    fakeBrowser({ afterLoginUrl: "https://www.linkedin.com/check/add-phone" });
+    expect(await li.startLogin("me@x.com", "pw")).toEqual({ status: "success", cookies: COOKIE });
+  });
+
+  it("unattended sign-in closes the browser and fails when verification is needed", async () => {
+    const { browser } = fakeBrowser({ pages: { [CHALLENGE]: codePage }, afterLoginUrl: CHALLENGE });
+    await expect(li.loginToLinkedIn("me@x.com", "pw")).rejects.toThrow("CHALLENGE_REQUIRED");
+    expect(browser.close).toHaveBeenCalled();
   });
 });
 

@@ -10,7 +10,17 @@ export const COOKIES = [
   { name: "JSESSIONID", value: "fresh-jsession", domain: ".www.linkedin.com", path: "/", httpOnly: false },
 ];
 
-export const loginToLinkedIn = vi.fn(async () => COOKIES);
+export const LinkedInLoginError = actual.LinkedInLoginError;
+export const loginToLinkedIn = vi.fn(async (..._args: unknown[]) => COOKIES);
+/** Delegates to the loginToLinkedIn mock, so a test that stubs one sign-in outcome covers both entry points. */
+export const startLogin = vi.fn(
+  async (...args: unknown[]): Promise<Actual.LoginStart> =>
+    ({ status: "success", cookies: await loginToLinkedIn(...args) }) as unknown as Actual.LoginStart,
+);
+export const continueLogin = vi.fn(
+  async (): Promise<Actual.LoginContinue> => ({ status: "success", cookies: COOKIES }) as unknown as Actual.LoginContinue,
+);
+export const closeLoginSession = vi.fn(async () => undefined);
 export const verifyCookies = vi.fn(async () => ({ valid: true }) as { valid: boolean; error?: string });
 export const fetchOwnProfile = vi.fn(async () => ({
   fullName: "Li User",

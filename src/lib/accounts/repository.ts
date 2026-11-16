@@ -6,7 +6,26 @@ import { dateKey } from "@server/utils/schedule";
 import { ensureDb } from "@/lib/server/backend";
 import { requireAuthContext } from "@/lib/workspace/context";
 import { getWorkspace } from "@server/domain/settings";
-import type { AccountHealth, AccountStatus, LinkedInAccountView } from "./types";
+import { isAppError } from "@server/utils/errors";
+import type { AccountHealth, AccountStatus, AccountVerification, LinkedInAccountView } from "./types";
+
+/**
+ * When a sign-in failed only because LinkedIn wants the owner to verify it (or rejected the code they
+ * typed), returns what the UI needs to ask for the code. Null for every other error.
+ */
+export function verificationFromError(err: unknown): AccountVerification | null {
+  if (!isAppError(err) || !err.details) return null;
+  if (err.code !== accountsDomain.VERIFICATION_REQUIRED && err.code !== "INVALID_CODE") return null;
+  const d = err.details as Partial<AccountVerification>;
+  if (!d.accountId) return null;
+  return {
+    accountId: String(d.accountId),
+    kind: d.kind === "app" ? "app" : "code",
+    channel: d.channel ?? "unknown",
+    hint: d.hint ?? "",
+    message: err.message,
+  };
+}
 
 function iso(value: Date | null | undefined): string | null {
   return value ? value.toISOString() : null;
@@ -98,6 +117,12 @@ export async function reconnectAccount(
     linkedinPassword: input?.password || undefined,
     sessionCookies: input?.sessionCookies,
   });
+}
+
+/** Submits the verification code (or, for app approval, re-checks) for a sign-in that is waiting on the owner. */
+export async function verifyAccount(id: string, code?: string): Promise<void> {
+  const { ctx } = await scoped();
+  await accountsDomain.verifyAccountLogin(ctx, id, { code });
 }
 
 export async function checkAccount(id: string): Promise<AccountHealth> {

@@ -12,11 +12,18 @@ import {
   removeAccount,
   startBrowserConnect,
   updateAccount,
+  verificationFromError,
+  verifyAccount,
 } from "@/lib/accounts/repository";
-import type { AccountHealth } from "@/lib/accounts/types";
+import type { AccountHealth, AccountVerification } from "@/lib/accounts/types";
 import { actionErrorMessage } from "@/lib/server/backend";
 
-export type AccountActionResult = { error?: string; success?: string };
+export type AccountActionResult = {
+  error?: string;
+  success?: string;
+  /** Set when LinkedIn wants the account owner to verify the sign-in; finish with verifyAccountAction. */
+  verification?: AccountVerification;
+};
 
 const NOT_CONFIGURED = { error: "Backend is not configured." };
 
@@ -46,6 +53,8 @@ export async function connectAccountAction(formData: FormData): Promise<AccountA
     return { success: `Connected ${account?.display_name ?? email}.` };
   } catch (err) {
     revalidatePath("/accounts");
+    const verification = verificationFromError(err);
+    if (verification) return { verification };
     return { error: actionErrorMessage(err, "Could not connect the LinkedIn account.") };
   }
 }
@@ -83,7 +92,25 @@ export async function reconnectAccountAction(
     return { success: "Account reconnected." };
   } catch (err) {
     revalidatePath("/accounts");
+    const verification = verificationFromError(err);
+    if (verification) return { verification };
     return { error: actionErrorMessage(err, "Could not reconnect the account.") };
+  }
+}
+
+/** Finishes a password sign-in with the code LinkedIn sent (omit the code to re-check an app approval). */
+export async function verifyAccountAction(id: string, code?: string): Promise<AccountActionResult> {
+  if (!isBackendConfigured()) return NOT_CONFIGURED;
+  try {
+    await verifyAccount(id, code);
+    revalidatePath("/accounts");
+    return { success: "Account connected." };
+  } catch (err) {
+    revalidatePath("/accounts");
+    const verification = verificationFromError(err);
+    // A rejected code keeps the sign-in open: return both so the UI can show why and ask again.
+    if (verification) return { verification, error: verification.message };
+    return { error: actionErrorMessage(err, "Could not verify the sign-in.") };
   }
 }
 
