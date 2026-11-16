@@ -13,6 +13,7 @@ type AppShellProps = {
   showSignOut?: boolean;
   liveMode?: boolean;
   linkedinOAuthEnabled?: boolean;
+  browserSignIn?: "window" | "remote" | "off";
 };
 
 export function AppShell({
@@ -23,6 +24,7 @@ export function AppShell({
   showSignOut,
   liveMode,
   linkedinOAuthEnabled = false,
+  browserSignIn = "off",
 }: AppShellProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -55,7 +57,7 @@ export function AppShell({
         </button>
         {children}
       </main>
-      <AppModals liveMode={liveMode} linkedinOAuthEnabled={linkedinOAuthEnabled} />
+      <AppModals liveMode={liveMode} linkedinOAuthEnabled={linkedinOAuthEnabled} browserSignIn={browserSignIn} />
     </div>
   );
 }

@@ -49,6 +49,23 @@ describe("parseLinkedInSessionCookies", () => {
     expect(cookies.every((c) => c.domain === ".www.linkedin.com")).toBe(true);
   });
 
+  it("accepts cookie objects read straight from a browser", () => {
+    const fromBrowser = [
+      { name: "li_at", value: "tok", domain: ".www.linkedin.com", path: "/", httpOnly: true, secure: true, expires: 1900000000 },
+      { name: "JSESSIONID", value: '"ajax:1"', domain: ".www.linkedin.com", path: "/", httpOnly: false, secure: true },
+      { name: "bcookie", value: "v=2", domain: ".linkedin.com", path: "/" },
+    ];
+    const cookies = parseLinkedInSessionCookies(fromBrowser);
+    expect(cookies.map((c) => `${c.name}@${c.domain}`)).toEqual([
+      "li_at@.www.linkedin.com",
+      "JSESSIONID@.www.linkedin.com",
+      "bcookie@.linkedin.com",
+    ]);
+    expect(cookies[0].expires).toBe(1900000000);
+    expect(parseLinkedInSessionCookies({ cookies: fromBrowser })).toEqual(cookies);
+    expect(() => parseLinkedInSessionCookies([{ name: "bcookie", value: "x" }])).toThrow(AppError);
+  });
+
   it("rejects empty input, JSON without li_at, and li_at-only JSON", () => {
     expect(() => parseLinkedInSessionCookies("")).toThrow(AppError);
     expect(() => parseLinkedInSessionCookies(JSON.stringify([{ name: "JSESSIONID", value: "x" }]))).toThrow(AppError);

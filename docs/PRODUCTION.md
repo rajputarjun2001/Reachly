@@ -54,6 +54,13 @@ On Linux hosts, if Chromium downloads but fails to start with missing shared lib
 1. **Sign In with LinkedIn (OIDC)** — set `LINKEDIN_CLIENT_ID` and `LINKEDIN_CLIENT_SECRET`; add redirect URL `{NEXT_PUBLIC_SITE_URL}/auth/linkedin/callback` in the LinkedIn Developer Portal. OIDC verifies identity only; after redirect, paste **session cookies** to enable outreach.
 2. **Paste session cookies** — sign in at linkedin.com in your browser, copy `li_at` (+ `JSESSIONID`) from DevTools, connect in Add Account.
 
+**Sign in with browser (streamed):** when deployed, the Add Account dialog shows LinkedIn's own sign-in page, running in a headless Chromium on the server and streamed into the dialog as a picture that refreshes about twice a second; the user's clicks and keystrokes are replayed in it. The user signs in themselves, including any code or CAPTCHA, and Reachly saves the session when LinkedIn reaches the feed. It uses the account's proxy and timezone, so set those first. Things to know:
+
+- Each sign-in holds a Chromium for up to 15 minutes. `BROWSER_CONNECT_MAX` (default 3) caps how many run at once; size the instance accordingly (1 GB is tight for more than one or two alongside campaign sends).
+- The live browser is in the server's memory: frame and input requests must reach the process that started the sign-in (fine for the single-process deployment; several instances need sticky routing).
+- The streamed page can only show LinkedIn; pop-ups are closed and other sites send it back to the sign-in page.
+- `BROWSER_CONNECT_MODE=window` restores the old behaviour (a Chromium window on the machine running Reachly, useful only in local development); `off` hides the option.
+
 **Password login:** Reachly signs in from the server, so LinkedIn sees a new device at the server's (or the account proxy's) address. Expect one of these:
 
 - **Verification code** (email, SMS or authenticator) or **approval in the LinkedIn app**: the Add Account dialog asks for the code and finishes the sign-in. The browser is held open for 10 minutes; the request that submits the code must reach the same server process (fine for the single-process deployment, needs sticky routing if you run several instances).

@@ -2,7 +2,7 @@ import { AppShell } from "@/components/layout/app-shell";
 import { AppProviders } from "@/components/providers/app-providers";
 import { DemoEnvironmentBanner } from "@/components/layout/demo-environment-banner";
 import { isBackendConfigured } from "@/lib/env";
-import { isLinkedInOAuthConfigured } from "@/lib/linkedin/config";
+import { browserConnectMode, isLinkedInOAuthConfigured } from "@/lib/linkedin/config";
 import { getWorkspaceContext } from "@/lib/workspace/context";
 import { demoWorkspace } from "@/data/demo/workspace";
 
@@ -18,6 +18,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const workspace = configured ? await getWorkspaceContext() : null;
 
   const linkedinOAuthEnabled = configured && isLinkedInOAuthConfigured();
+  const browserSignIn = configured ? browserConnectMode() : "off";
   const workspaceName = workspace?.workspaceName ?? demoWorkspace.name;
   const workspacePlan = configured
     ? workspace
@@ -35,6 +36,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         showSignOut={configured}
         liveMode={configured}
         linkedinOAuthEnabled={linkedinOAuthEnabled}
+        browserSignIn={browserSignIn}
       >
         {children}
       </AppShell>

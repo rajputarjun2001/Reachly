@@ -28,6 +28,19 @@ accountsRouter.get(
   asyncHandler(async (req, res) => ok(res, accounts.browserConnectStatus(ctxOf(req), req.params.sessionId))),
 );
 
+accountsRouter.get(
+  "/connect/browser/:sessionId/frame",
+  asyncHandler(async (req, res) => {
+    const frame = await accounts.browserConnectFrame(ctxOf(req), req.params.sessionId);
+    res.set({ "Content-Type": "image/jpeg", "Cache-Control": "no-store" }).send(frame);
+  }),
+);
+
+accountsRouter.post(
+  "/connect/browser/:sessionId/input",
+  asyncHandler(async (req, res) => ok(res, await accounts.browserConnectInput(ctxOf(req), req.params.sessionId, req.body))),
+);
+
 accountsRouter.delete(
   "/connect/browser/:sessionId",
   asyncHandler(async (req, res) => ok(res, await accounts.cancelBrowserConnect(ctxOf(req), req.params.sessionId), "Browser sign-in cancelled")),

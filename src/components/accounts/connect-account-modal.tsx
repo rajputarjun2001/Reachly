@@ -12,11 +12,17 @@ import {
   verifyAccountAction,
 } from "@/app/(app)/accounts/actions";
 import type { AccountVerification } from "@/lib/accounts/types";
+import { RemoteBrowserView } from "@/components/accounts/remote-browser-view";
 
 type ConnectAccountModalProps = {
   open: boolean;
   onClose: () => void;
   linkedinOAuthEnabled?: boolean;
+  /**
+   * How the server offers "Sign in with browser": "remote" streams LinkedIn's page into this dialog
+   * (works when deployed); "window" opens Chromium on the server machine (local development only).
+   */
+  browserSignIn?: "window" | "remote" | "off";
 };
 
 type Mode = "oauth" | "password" | "browser" | "cookies";
@@ -32,11 +38,25 @@ function defaultMode(oauth: boolean): Mode {
   return "cookies";
 }
 
-export function ConnectAccountModal({ open, onClose, linkedinOAuthEnabled = false }: ConnectAccountModalProps) {
+export function ConnectAccountModal({
+  open,
+  onClose,
+  linkedinOAuthEnabled = false,
+  browserSignIn = "off",
+}: ConnectAccountModalProps) {
   const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);
-  /** SSR and first paint must match; detect localhost after mount to avoid hydration mismatch. */
-  const [browserConnectAvailable, setBrowserConnectAvailable] = useState(false);
+  /**
+   * A window on the server machine is only visible when that machine is this computer, so "window" mode
+   * is offered on localhost only; "remote" mode works anywhere.
+   * SSR and first paint must match; detect localhost after mount to avoid hydration mismatch.
+   */
+  const [onLocalHost, setOnLocalHost] = useState(false);
+  const browserConnectAvailable = browserSignIn === "remote" || (browserSignIn === "window" && onLocalHost);
+  /** Set once a sign-in starts: whether its page is streamed here or shown in a window on the server. */
+  const [browserMode, setBrowserMode] = useState<"window" | "remote" | null>(null);
+  /** LinkedIn has signed the user in and Reachly is verifying and saving the session. */
+  const [browserSaving, setBrowserSaving] = useState(false);
   const [mode, setMode] = useState<Mode>(() => defaultMode(linkedinOAuthEnabled));
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -47,7 +67,7 @@ export function ConnectAccountModal({ open, onClose, linkedinOAuthEnabled = fals
   const [code, setCode] = useState("");
 
   useEffect(() => {
-    setBrowserConnectAvailable(isLocalHost());
+    setOnLocalHost(isLocalHost());
   }, []);
 
   useEffect(() => {
@@ -56,6 +76,8 @@ export function ConnectAccountModal({ open, onClose, linkedinOAuthEnabled = fals
       setMode(defaultMode(linkedinOAuthEnabled));
       setBrowserSessionId(null);
       setBrowserStatus(null);
+      setBrowserMode(null);
+      setBrowserSaving(false);
       setVerification(null);
       setCode("");
       formRef.current?.reset();
@@ -74,6 +96,7 @@ export function ConnectAccountModal({ open, onClose, linkedinOAuthEnabled = fals
           return;
         }
         setBrowserStatus(result.status ?? null);
+        setBrowserSaving(Boolean(result.saving));
         if (result.status === "success") {
           setBrowserSessionId(null);
           onClose();
@@ -89,6 +112,8 @@ export function ConnectAccountModal({ open, onClose, linkedinOAuthEnabled = fals
   }, [browserConnectAvailable, browserSessionId, browserStatus, onClose, router]);
 
   const busy = pending || Boolean(browserSessionId);
+  /** LinkedIn's sign-in page is being shown inside this dialog. */
+  const streaming = Boolean(browserSessionId) && browserMode === "remote";
 
   const submitPassword = () => {
     const form = formRef.current;
@@ -172,6 +197,8 @@ export function ConnectAccountModal({ open, onClose, linkedinOAuthEnabled = fals
       if (result.sessionId) {
         setBrowserSessionId(result.sessionId);
         setBrowserStatus("pending");
+        setBrowserMode(result.mode ?? "window");
+        setBrowserSaving(false);
       }
     });
   };
@@ -216,6 +243,7 @@ export function ConnectAccountModal({ open, onClose, linkedinOAuthEnabled = fals
       open={open}
       onClose={handleClose}
       title="Connect LinkedIn Account"
+      size={streaming ? "xl" : "default"}
       footer={
         <>
           {browserSessionId ? (
@@ -245,7 +273,15 @@ export function ConnectAccountModal({ open, onClose, linkedinOAuthEnabled = fals
             </button>
           ) : (
             <button type="button" className="btn btn-primary" onClick={submitBrowser} disabled={busy}>
-              {browserSessionId ? "Waiting for LinkedIn…" : pending ? "Opening browser…" : "Open LinkedIn sign-in"}
+              {browserSessionId
+                ? browserSaving
+                  ? "Saving session…"
+                  : streaming
+                  ? "Waiting for you to sign in…"
+                  : "Waiting for LinkedIn…"
+                : pending
+                  ? "Opening browser…"
+                  : "Open LinkedIn sign-in"}
             </button>
           )}
         </>
@@ -297,7 +333,30 @@ export function ConnectAccountModal({ open, onClose, linkedinOAuthEnabled = fals
           ) : null}
         </div>
       ) : null}
-      <div hidden={Boolean(verification)}>
+      {streaming && browserSessionId ? (
+        <div style={{ marginBottom: 12 }}>
+          {browserSaving ? null : (
+            <p className="form-hint" style={{ marginBottom: 10 }}>
+              Sign in to LinkedIn below. This closes by itself once you reach your feed. The sign-in stays open for
+              15 minutes.
+            </p>
+          )}
+          {browserSaving ? (
+            <p role="status" style={{ padding: "48px 0", textAlign: "center", fontWeight: 600 }}>
+              Signed in. Saving your LinkedIn session…
+            </p>
+          ) : (
+            <RemoteBrowserView sessionId={browserSessionId} onError={setError} />
+          )}
+        </div>
+      ) : null}
+      {error && (verification || streaming) ? (
+        // The form below (and its error line) is hidden during these steps, so show the error here.
+        <p role="alert" className="form-hint" style={{ color: "var(--red)", marginBottom: 12 }}>
+          {error}
+        </p>
+      ) : null}
+      <div hidden={Boolean(verification) || streaming}>
       <div className="flex-center gap-8" style={{ marginBottom: 16, flexWrap: "wrap" }}>
         {linkedinOAuthEnabled ? (
           <button
@@ -365,11 +424,21 @@ export function ConnectAccountModal({ open, onClose, linkedinOAuthEnabled = fals
             color: "#065f46",
           }}
         >
-          A <strong>separate Chromium window</strong> opens on the PC where <code>npm run dev</code> is running (check your
-          taskbar—it is not inside this browser tab). First time? Run <code>npm run browsers:install</code> once, then
-          restart the dev server. If no window appears, use <strong>Paste session cookies</strong> instead. If you are
-          already signed in to LinkedIn there, Reachly saves the session when you land on the feed; otherwise sign in
-          and complete verification.
+          {browserSignIn === "remote" ? (
+            <>
+              LinkedIn&apos;s own sign-in page opens here, running in a browser on Reachly&apos;s server. You sign in
+              yourself, including any verification code or puzzle LinkedIn asks for, and Reachly saves the session when
+              you reach your feed. What you type is sent to that browser; Reachly does not store your password.
+            </>
+          ) : (
+            <>
+              A <strong>separate Chromium window</strong> opens on the PC where <code>npm run dev</code> is running
+              (check your taskbar—it is not inside this browser tab). First time? Run{" "}
+              <code>npm run browsers:install</code> once, then restart the dev server. If no window appears, use{" "}
+              <strong>Paste session cookies</strong> instead. If you are already signed in to LinkedIn there, Reachly
+              saves the session when you land on the feed; otherwise sign in and complete verification.
+            </>
+          )}
         </div>
       ) : mode === "cookies" ? (
         <div
@@ -408,7 +477,7 @@ export function ConnectAccountModal({ open, onClose, linkedinOAuthEnabled = fals
         </div>
       )}
 
-      {browserSessionId ? (
+      {browserSessionId && !streaming ? (
         <p role="status" className="form-hint" style={{ marginBottom: 12 }}>
           Complete sign-in in the LinkedIn browser window. This page updates when the session is saved.
         </p>

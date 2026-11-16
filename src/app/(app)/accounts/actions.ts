@@ -10,6 +10,8 @@ import {
   pollBrowserConnect,
   reconnectAccount,
   removeAccount,
+  sendBrowserConnectInput,
+  type BrowserConnectInput,
   startBrowserConnect,
   updateAccount,
   verificationFromError,
@@ -146,6 +148,10 @@ export type BrowserConnectActionResult = {
   error?: string;
   sessionId?: string;
   status?: string;
+  /** "remote": show the streamed sign-in page. "window": a Chromium window opened on the server machine. */
+  mode?: "window" | "remote";
+  /** The user has signed in and Reachly is saving the session. */
+  saving?: boolean;
   accountId?: string;
 };
 
@@ -160,7 +166,7 @@ export async function startBrowserConnectAction(formData: FormData): Promise<Bro
       dailyLimit: optionalLimit(formData.get("daily_limit")),
       proxyUrl: optionalProxy(formData.get("proxy_url")),
     });
-    return { sessionId: snap.sessionId, status: snap.status };
+    return { sessionId: snap.sessionId, status: snap.status, mode: snap.mode };
   } catch (err) {
     return { error: actionErrorMessage(err, "Could not open the LinkedIn browser.") };
   }
@@ -174,9 +180,24 @@ export async function pollBrowserConnectAction(sessionId: string): Promise<Brows
     return {
       sessionId: snap.sessionId,
       status: snap.status,
+      saving: snap.saving,
       accountId: snap.accountId,
       error: snap.error,
     };
+  } catch (err) {
+    return { error: actionErrorMessage(err) };
+  }
+}
+
+/** Forwards a click, keystroke or scroll to the streamed sign-in page. */
+export async function browserConnectInputAction(
+  sessionId: string,
+  input: BrowserConnectInput,
+): Promise<{ error?: string }> {
+  if (!isBackendConfigured()) return NOT_CONFIGURED;
+  try {
+    await sendBrowserConnectInput(sessionId, input);
+    return {};
   } catch (err) {
     return { error: actionErrorMessage(err) };
   }
