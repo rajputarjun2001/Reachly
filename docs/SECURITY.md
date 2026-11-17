@@ -1,5 +1,15 @@
 # Reachly — Security
 
+## Framework versions (required for production)
+
+Reachly uses the **App Router** and Server Actions. Unpatched Next.js 15.x on a public host is a critical remote-code-execution risk (React2Shell / CVE-2025-66478) and follow-on RSC advisories.
+
+- Pin **`next` to `15.2.8` or newer** on the 15.2 line (see [Next.js security advisories](https://nextjs.org/blog/security-update-2025-12-11)).
+- After any compromise, **rotate** `JWT_SECRET` and `ENCRYPTION_KEY`, rebuild on a clean host, and force LinkedIn reconnects.
+- On deploy, verify: `node -p "require('next/package.json').version"`.
+
+Do not run `npm audit fix --force` on production lockfiles without review; it can jump major Next versions.
+
 ## Authentication
 
 - Session is an httpOnly, `SameSite=lax` cookie (`reachly_session`) signed with `jose` (HS256).
@@ -37,8 +47,11 @@ Automating LinkedIn can violate LinkedIn's terms and can get the connected accou
 - Blacklist (domain + profile URL) is applied before insert.
 - Duplicate `linkedin_url` values in the same list are skipped.
 
-## Remaining risks
+## Rate limiting
 
-- No rate limiting on auth endpoints.
+- `/api/auth/*` is limited with `express-rate-limit` (30 requests / 15 min per IP; respects `trust proxy` in production).
+- Login, sign-up, and accept-invite **Server Actions** share an in-memory per-IP limiter in `server/utils/authRateLimit.ts`. Multi-instance deploys should add Redis-backed limits or edge rate rules.
+
+## Remaining risks
 - Settings UI is not yet wired to the live members/blacklist APIs (the APIs exist).
 - Playwright selectors will drift as LinkedIn changes their DOM.

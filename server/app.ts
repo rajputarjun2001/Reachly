@@ -7,6 +7,7 @@ import { pingRedis } from "./config/redis";
 import { areWorkersRunning } from "./services/scheduler/workers";
 import { authenticate } from "./middleware/auth";
 import { errorHandler, notFoundHandler } from "./middleware/errorHandler";
+import { authApiRateLimit } from "./middleware/authRateLimit";
 import { authRouter } from "./routes/auth";
 import { workspaceRouter } from "./routes/workspace";
 import { leadsRouter } from "./routes/leads";
@@ -19,6 +20,7 @@ import { analyticsRouter, blacklistRouter, settingsRouter } from "./routes/misc"
 export function createApiApp(): Express {
   const app = express();
   app.disable("x-powered-by");
+  if (env.isProduction) app.set("trust proxy", 1);
   app.use(helmet());
   app.use(cors({ origin: env.siteUrl, credentials: true }));
   app.use(express.json({ limit: "1mb" }));
@@ -51,7 +53,7 @@ export function createApiApp(): Express {
     });
   });
 
-  app.use("/api/auth", authRouter);
+  app.use("/api/auth", authApiRateLimit, authRouter);
   app.use("/api/workspace", authenticate, workspaceRouter);
   app.use("/api/leads", authenticate, leadsRouter);
   app.use("/api/campaigns", authenticate, campaignsRouter);

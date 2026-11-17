@@ -15,6 +15,7 @@ import {
 import { renderTemplate } from "../utils/template";
 import { isBlacklisted } from "../utils/blacklist";
 import { getBackendConfigError } from "../config/env";
+import { clientIpFromForwarded } from "../utils/authRateLimit";
 
 describe("encryption (AES-256-GCM)", () => {
   it("round-trips text and produces a different ciphertext each time", () => {
@@ -239,4 +240,12 @@ describe("isBlacklisted", () => {
       false,
     );
   });
+});
+
+describe("auth rate limit", () => {
+  it("parses the first forwarded client IP", () => {
+    expect(clientIpFromForwarded("203.0.113.1, 10.0.0.1", null)).toBe("203.0.113.1");
+    expect(clientIpFromForwarded(null, "198.51.100.2")).toBe("198.51.100.2");
+  });
+
 });

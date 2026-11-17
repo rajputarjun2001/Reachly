@@ -6,8 +6,22 @@ import { getSafeRedirectPath } from "@/lib/auth/redirect";
 import { getSession, setSessionCookie } from "@/lib/auth/session";
 import { getBackendConfigError } from "@/lib/env";
 import { actionErrorMessage, ensureDb } from "@/lib/server/backend";
+import { headers } from "next/headers";
+import { clientIpFromForwarded, consumeAuthAttempt } from "@server/utils/authRateLimit";
 
 const GENERIC_AUTH_ERROR = "Unable to sign in. Check your email and password.";
+const RATE_LIMIT_ERROR = "Too many attempts. Try again later.";
+
+async function limitAuthAction(scope: string): Promise<AuthActionState | null> {
+  const h = await headers();
+  const ip = clientIpFromForwarded(h.get("x-forwarded-for"), h.get("x-real-ip"));
+  try {
+    consumeAuthAttempt(`${scope}:${ip}`);
+  } catch {
+    return { error: RATE_LIMIT_ERROR };
+  }
+  return null;
+}
 
 export type AuthActionState = {
   error?: string;
@@ -20,6 +34,8 @@ function configError(): AuthActionState | null {
 }
 
 export async function signInAction(_prev: AuthActionState, formData: FormData): Promise<AuthActionState> {
+  const limited = await limitAuthAction("sign-in");
+  if (limited) return limited;
   const notConfigured = configError();
   if (notConfigured) return notConfigured;
 
@@ -42,6 +58,8 @@ export async function signInAction(_prev: AuthActionState, formData: FormData): 
 }
 
 export async function signUpAction(_prev: AuthActionState, formData: FormData): Promise<AuthActionState> {
+  const limited = await limitAuthAction("sign-up");
+  if (limited) return limited;
   const notConfigured = configError();
   if (notConfigured) return notConfigured;
 
@@ -82,6 +100,8 @@ export async function createWorkspaceAction(_prev: AuthActionState, formData: Fo
 }
 
 export async function acceptInviteAction(_prev: AuthActionState, formData: FormData): Promise<AuthActionState> {
+  const limited = await limitAuthAction("accept-invite");
+  if (limited) return limited;
   const notConfigured = configError();
   if (notConfigured) return notConfigured;
 
