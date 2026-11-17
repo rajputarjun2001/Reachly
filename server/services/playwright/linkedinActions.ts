@@ -101,10 +101,12 @@ export const SELECTORS = {
   loginPassword: "#password",
   loginSubmit: 'button[type="submit"]',
   loginError: "#error-for-password, #error-for-username, .form__label--error",
-  connectButton: 'main button[aria-label*="connect" i]:not([aria-label*="disconnect" i])',
-  moreActions: 'main button[aria-label="More actions"]',
-  connectInMenu: 'main div[role="button"][aria-label*="connect" i]',
-  pendingButton: 'main button[aria-label*="Pending" i]',
+  // Scoped to the profile's own top card (the section holding its <h1>). A page-wide match can hit a
+  // Connect or Pending button that belongs to someone else, e.g. in "People you may know".
+  connectButton: 'section:has(h1) button[aria-label*="connect" i]:not([aria-label*="disconnect" i])',
+  moreActions: 'section:has(h1) button[aria-label="More actions"]',
+  connectInMenu: 'section:has(h1) div[role="button"][aria-label*="connect" i]',
+  pendingButton: 'section:has(h1) button[aria-label*="Pending" i]',
   addNote: 'button[aria-label="Add a note"]',
   noteTextarea: 'textarea[name="message"]',
   sendInvitation: 'button[aria-label="Send invitation"], button[aria-label="Send now"], button[aria-label="Send"]',
@@ -112,7 +114,7 @@ export const SELECTORS = {
   messageButton: 'main button[aria-label^="Message"]',
   composeBox: 'div.msg-form__contenteditable[contenteditable="true"]',
   composeSend: "button.msg-form__send-button",
-  distanceBadge: "main .dist-value",
+  distanceBadge: "section:has(h1) .dist-value",
   inboxItem: "li.msg-conversation-listitem",
 };
 
@@ -130,7 +132,12 @@ export type BrowserOptions = {
   /** IANA timezone the browser reports; defaults to UTC. */
   timezoneId?: string;
 };
-export type ActionResult = { success: boolean; error?: string };
+export type ActionResult = {
+  success: boolean;
+  error?: string;
+  /** What the page showed when an action could not be done (for the lead's status and for debugging). */
+  detail?: string;
+};
 export type ConnectionState = "connected" | "pending" | "not_connected";
 
 /** Where LinkedIn says it sent the sign-in code. */
@@ -549,7 +556,7 @@ export const LOGIN_INPUT_KEYS = new Set([
 
 /** A JPEG of what the remote sign-in page currently shows. */
 export async function captureLoginFrame(session: PlaywrightSession): Promise<Buffer> {
-  return session.page.screenshot({ type: "jpeg", quality: 60, timeout: 10_000 });
+  return session.page.screenshot({ type: "jpeg", quality: 50, timeout: 10_000 });
 }
 
 /** Replays one user action in the remote sign-in page. Throws on input it does not recognise. */
@@ -567,7 +574,7 @@ export async function sendLoginInput(session: PlaywrightSession, input: LoginInp
     case "type": {
       const text = String(input.text ?? "");
       if (!text || text.length > 500) throw new Error("INVALID_INPUT");
-      await page.keyboard.type(text, { delay: 25 });
+      await page.keyboard.type(text, { delay: 12 });
       return;
     }
     case "key":
@@ -603,7 +610,8 @@ async function bodyText(page: Page) {
 }
 
 async function warmSessionOnFeed(page: Page): Promise<LinkedInError | null> {
-  await goto(page, FEED_URL, "load");
+  // DOM ready is enough to tell signed-in from signed-out; LinkedIn's full "load" can take many seconds.
+  await goto(page, FEED_URL, "domcontentloaded");
   await humanDelay(page);
   return detectProblem(page);
 }
@@ -856,6 +864,123 @@ export async function fetchOwnProfile(
   });
 }
 
+/** `value` as a CSS attribute-selector string (names can contain quotes). */
+const cssString = (value: string) => `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+
+/** The profile's top card: where the member's own name and action buttons are. */
+const TOP_CARD = "section:has(h1)";
+
+async function profileName(page: Page): Promise<string> {
+  const text = await page
+    .locator("h1")
+    .first()
+    .innerText({ timeout: 3000 })
+    .catch(() => "");
+  return text.replace(/\s+/g, " ").trim();
+}
+
+/** First selector in the list that currently matches a visible element. */
+async function firstMatch(page: Page, selectors: string[]): Promise<string | null> {
+  for (const selector of selectors) {
+    const count = await page
+      .locator(selector)
+      .locator("visible=true")
+      .count()
+      .catch(() => 0);
+    if (count > 0) return selector;
+  }
+  return null;
+}
+
+/**
+ * Ways LinkedIn has rendered "Connect" on a profile, most specific first. The first two name the member,
+ * so they can never match a Connect button for someone else (for example in "People you may know").
+ * Best-effort: LinkedIn changes this markup, and it has not been verified against a live account.
+ */
+function connectSelectors(name: string, slug: string): string[] {
+  const selectors: string[] = [];
+  if (name) selectors.push(`[aria-label=${cssString(`Invite ${name} to connect`)} i]`);
+  if (slug) selectors.push(`a[href*="/preload/custom-invite/" i][href*=${cssString(`vanityName=${slug}`)} i]`);
+  selectors.push(
+    `${TOP_CARD} button[aria-label*="to connect" i]`,
+    `${TOP_CARD} a[aria-label*="to connect" i]`,
+    `${TOP_CARD} button:text-is("Connect")`,
+    `${TOP_CARD} a:text-is("Connect")`,
+    SELECTORS.connectButton,
+  );
+  return selectors;
+}
+
+function connectInMenuSelectors(name: string): string[] {
+  const selectors: string[] = [];
+  if (name) selectors.push(`[aria-label=${cssString(`Invite ${name} to connect`)} i]`);
+  selectors.push(
+    // The menu was opened from this profile's own More button a moment ago, so it is this member's menu.
+    '[role="menu"] [aria-label*="to connect" i]',
+    '[role="menuitem"]:text-is("Connect")',
+    '.artdeco-dropdown__content [role="button"]:text-is("Connect")',
+    SELECTORS.connectInMenu,
+  );
+  return selectors;
+}
+
+function pendingSelectors(name: string): string[] {
+  const selectors: string[] = [];
+  if (name) selectors.push(`[aria-label*="Pending" i][aria-label*=${cssString(name)} i]`);
+  selectors.push(`${TOP_CARD} button:text-is("Pending")`, `${TOP_CARD} a:text-is("Pending")`, SELECTORS.pendingButton);
+  return selectors;
+}
+
+const MORE_SELECTORS = [
+  `${TOP_CARD} button[aria-label="More actions" i]`,
+  `${TOP_CARD} button[aria-label="More" i]`,
+  `${TOP_CARD} button:text-is("More")`,
+  SELECTORS.moreActions,
+];
+const ADD_NOTE_SELECTORS = [SELECTORS.addNote, '[role="dialog"] button:text-is("Add a note")'];
+const NOTE_TEXTAREA_SELECTORS = [SELECTORS.noteTextarea, "textarea#custom-message", '[role="dialog"] textarea'];
+const SEND_WITH_NOTE_SELECTORS = [SELECTORS.sendInvitation, '[role="dialog"] button:text-is("Send")'];
+const SEND_WITHOUT_NOTE_SELECTORS = [
+  SELECTORS.sendWithoutNote,
+  '[role="dialog"] button:text-is("Send without a note")',
+  '[role="dialog"] button:text-is("Send")',
+];
+const INVITE_DIALOG_SELECTORS = [...ADD_NOTE_SELECTORS, ...SEND_WITHOUT_NOTE_SELECTORS];
+
+/** Labels of the buttons and links LinkedIn showed in the profile's top card, e.g. "Message, Follow, More". */
+async function describeProfileActions(page: Page): Promise<string> {
+  let labels: string[] = [];
+  try {
+    labels = await page
+      .locator(`${TOP_CARD} button, ${TOP_CARD} a[role="button"], ${TOP_CARD} a[aria-label]`)
+      .evaluateAll((elements) =>
+        elements
+          .filter((el) => (el as HTMLElement).offsetParent !== null)
+          .map((el) => (el.getAttribute("aria-label") || el.textContent || "").replace(/\s+/g, " ").trim())
+          .filter(Boolean),
+      );
+  } catch {
+    // Diagnostics only: never let them turn a clear "no Connect button" into an unrelated error.
+  }
+  const unique = [...new Set(labels)].slice(0, 12).map((label) => label.slice(0, 60));
+  return unique.length ? unique.join(", ") : "no buttons";
+}
+
+async function isFirstDegree(page: Page): Promise<boolean> {
+  const badge = await page
+    .locator(SELECTORS.distanceBadge)
+    .first()
+    .innerText({ timeout: 1500 })
+    .catch(() => "");
+  if (/1st/.test(badge)) return true;
+  const card = await page
+    .locator(TOP_CARD)
+    .first()
+    .innerText({ timeout: 1500 })
+    .catch(() => "");
+  return /(^|[\s·•])1st(\s|$)/m.test(card);
+}
+
 export async function sendConnectionRequest(
   cookies: SessionCookie[],
   profileUrl: string,
@@ -868,43 +993,68 @@ export async function sendConnectionRequest(
       if (feedProblem) return { success: false, error: feedProblem };
 
       const target = normalizeLinkedinUrl(profileUrl) ?? profileUrl;
+      const slug = decodeURIComponent(target.split("/in/")[1]?.split(/[/?#]/)[0] ?? "");
       await goto(page, target);
       await humanDelay(page);
       const problem = await detectProblem(page);
       if (problem) return { success: false, error: problem };
 
-      if (await exists(page, SELECTORS.pendingButton)) return { success: false, error: ERRORS.ALREADY_PENDING };
+      const name = await profileName(page);
+      if (await firstMatch(page, pendingSelectors(name))) return { success: false, error: ERRORS.ALREADY_PENDING };
 
-      let connect = page.locator(SELECTORS.connectButton).first();
-      if (!(await connect.count()) && (await exists(page, SELECTORS.moreActions))) {
-        await page.locator(SELECTORS.moreActions).first().click();
-        await page.waitForTimeout(800 + Math.random() * 700);
-        connect = page.locator(SELECTORS.connectInMenu).first();
+      let connect = await firstMatch(page, connectSelectors(name, slug));
+      if (!connect) {
+        const more = await firstMatch(page, MORE_SELECTORS);
+        if (more) {
+          await page.locator(more).locator("visible=true").first().click();
+          await page.waitForTimeout(800 + Math.random() * 700);
+          connect = await firstMatch(page, connectInMenuSelectors(name));
+        }
       }
-      if (!(await connect.count())) {
-        const degree = await page
-          .locator(SELECTORS.distanceBadge)
-          .first()
-          .innerText()
-          .catch(() => "");
+
+      if (connect) {
+        await page.locator(connect).locator("visible=true").first().click();
+        await humanDelay(page);
+      } else {
+        if (await isFirstDegree(page)) return { success: false, error: ERRORS.ALREADY_CONNECTED };
+        const shown = await describeProfileActions(page);
+        // Last resort: LinkedIn's own invite link for this member opens the same invitation dialog.
+        if (slug) {
+          await goto(page, `${LINKEDIN_ORIGIN}/preload/custom-invite/?vanityName=${encodeURIComponent(slug)}`);
+          await humanDelay(page);
+          const inviteProblem = await detectProblem(page);
+          if (inviteProblem) return { success: false, error: inviteProblem };
+        }
+        if (!slug || !(await firstMatch(page, INVITE_DIALOG_SELECTORS))) {
+          return { success: false, error: ERRORS.CONNECT_UNAVAILABLE, detail: `${name || "profile"} showed: ${shown}` };
+        }
+      }
+
+      const addNote = note ? await firstMatch(page, ADD_NOTE_SELECTORS) : null;
+      let sendSelectors = SEND_WITHOUT_NOTE_SELECTORS;
+      if (addNote) {
+        await page.locator(addNote).locator("visible=true").first().click();
+        await page.waitForTimeout(800 + Math.random() * 700);
+        const textarea = await firstMatch(page, NOTE_TEXTAREA_SELECTORS);
+        if (textarea) {
+          await page.locator(textarea).locator("visible=true").first().fill(note);
+          await humanDelay(page);
+          sendSelectors = SEND_WITH_NOTE_SELECTORS;
+        }
+      }
+      const send = await firstMatch(page, sendSelectors);
+      if (!send) {
+        const text = (await bodyText(page)).replace(/\s+/g, " ");
+        const asksEmail = /enter their email|email address to connect/i.test(text);
         return {
           success: false,
-          error: /1st/.test(degree) ? ERRORS.ALREADY_CONNECTED : ERRORS.CONNECT_UNAVAILABLE,
+          error: ERRORS.CONNECT_UNAVAILABLE,
+          detail: asksEmail
+            ? "LinkedIn asked for this member's email address before connecting"
+            : `the invitation dialog had no Send button (${await describeProfileActions(page)})`,
         };
       }
-
-      await connect.click();
-      await humanDelay(page);
-
-      if (note) {
-        await page.locator(SELECTORS.addNote).first().click();
-        await page.waitForTimeout(800 + Math.random() * 700);
-        await page.locator(SELECTORS.noteTextarea).first().fill(note);
-        await humanDelay(page);
-        await page.locator(SELECTORS.sendInvitation).first().click();
-      } else {
-        await page.locator(SELECTORS.sendWithoutNote).first().click();
-      }
+      await page.locator(send).locator("visible=true").first().click();
       await humanDelay(page);
 
       const after = await detectProblem(page);

@@ -56,6 +56,8 @@ On Linux hosts, if Chromium downloads but fails to start with missing shared lib
 
 **Sign in with browser (streamed):** when deployed, the Add Account dialog shows LinkedIn's own sign-in page, running in a headless Chromium on the server and streamed into the dialog as a picture that refreshes about twice a second; the user's clicks and keystrokes are replayed in it. The user signs in themselves, including any code or CAPTCHA, and Reachly saves the session when LinkedIn reaches the feed. It uses the account's proxy and timezone, so set those first. Things to know:
 
+- Typing is sent in batches as fast as the server answers, and the picture is re-requested right after each batch; how responsive it feels depends on the round trip between the user and the server, so host the app near your users.
+- After sign-in the session is saved straight away (it is not re-verified in a second browser) and the account's name and headline are filled in a few seconds later.
 - Each sign-in holds a Chromium for up to 15 minutes. `BROWSER_CONNECT_MAX` (default 3) caps how many run at once; size the instance accordingly (1 GB is tight for more than one or two alongside campaign sends).
 - The live browser is in the server's memory: frame and input requests must reach the process that started the sign-in (fine for the single-process deployment; several instances need sticky routing).
 - The streamed page can only show LinkedIn; pop-ups are closed and other sites send it back to the sign-in page.
@@ -87,6 +89,12 @@ The browser's timezone follows the account. It is taken from the workspace timez
 After adding or changing a proxy, **paste fresh session cookies**: sign in to LinkedIn again, ideally while your own browser uses the same proxy, so the session is created and used from one location.
 
 A proxy outage is reported as `PROXY_FAILED`; leads stay pending and are retried rather than skipped.
+
+## When a connection request is skipped
+
+`connect_unavailable` means Reachly found no way to connect on the profile. The lead's status then records what LinkedIn did show in the profile's top card, for example `Jane Doe showed: Message, Follow, More`, and the same text is in the `job_skipped` event. Reachly looks for, in order: a control labelled "Invite <name> to connect", LinkedIn's invite link for that member, a Connect button in the profile's own top card, Connect inside the More menu, and finally LinkedIn's invite link opened directly. Controls are matched by the member's name or inside their own card so a Connect button for someone else on the page is never used. LinkedIn changes this markup; if a profile that clearly has a Connect button is skipped, the recorded text is what is needed to update the selectors in `server/services/playwright/linkedinActions.ts`.
+
+"Send now" drives a real browser with deliberate pauses between steps, so it takes roughly 15 to 30 seconds.
 
 ## Verify locally
 

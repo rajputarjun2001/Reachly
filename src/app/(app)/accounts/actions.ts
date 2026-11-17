@@ -10,8 +10,6 @@ import {
   pollBrowserConnect,
   reconnectAccount,
   removeAccount,
-  sendBrowserConnectInput,
-  type BrowserConnectInput,
   startBrowserConnect,
   updateAccount,
   verificationFromError,
@@ -184,20 +182,6 @@ export async function pollBrowserConnectAction(sessionId: string): Promise<Brows
       accountId: snap.accountId,
       error: snap.error,
     };
-  } catch (err) {
-    return { error: actionErrorMessage(err) };
-  }
-}
-
-/** Forwards a click, keystroke or scroll to the streamed sign-in page. */
-export async function browserConnectInputAction(
-  sessionId: string,
-  input: BrowserConnectInput,
-): Promise<{ error?: string }> {
-  if (!isBackendConfigured()) return NOT_CONFIGURED;
-  try {
-    await sendBrowserConnectInput(sessionId, input);
-    return {};
   } catch (err) {
     return { error: actionErrorMessage(err) };
   }

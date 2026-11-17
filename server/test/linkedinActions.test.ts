@@ -340,12 +340,54 @@ describe("sendConnectionRequest", () => {
   it.each<[string, FakePage, string]>([
     ["pending invitation", { elements: { [S.pendingButton]: {} } }, "ALREADY_PENDING"],
     ["1st-degree connection", { elements: { [S.distanceBadge]: { text: "· 1st" } } }, "ALREADY_CONNECTED"],
-    ["no connect option", { elements: {} }, "CONNECT_UNAVAILABLE"],
     ["logged out", { url: "https://www.linkedin.com/authwall?x" }, "SESSION_EXPIRED"],
     ["restricted", { body: "Your account has been temporarily restricted" }, "ACCOUNT_RESTRICTED"],
   ])("returns an error code for %s", async (_, page, code) => {
     fakeBrowser({ pages: { [profile]: page } });
     expect(await li.sendConnectionRequest(COOKIE, profile, "n")).toEqual({ success: false, error: code });
+  });
+
+  it("reports what the profile showed when there is no way to connect, after trying LinkedIn's invite link", async () => {
+    const { page } = fakeBrowser({
+      pages: { [profile]: { elements: { "h1": { text: "Jane  Doe" } } } },
+    });
+    expect(await li.sendConnectionRequest(COOKIE, profile, "n")).toEqual({
+      success: false,
+      error: "CONNECT_UNAVAILABLE",
+      detail: "Jane Doe showed: no buttons",
+    });
+    expect(page.goto).toHaveBeenLastCalledWith(
+      "https://www.linkedin.com/preload/custom-invite/?vanityName=jane",
+      expect.any(Object),
+    );
+  });
+
+  it("targets the member by name, so another person's Connect button is never used", async () => {
+    const named = '[aria-label="Invite Jane \\"JD\\" Doe to connect" i]';
+    const { actions } = fakeBrowser({
+      pages: { [profile]: { elements: { "h1": { text: 'Jane "JD" Doe' }, [named]: {}, [S.connectButton]: {} } } },
+      onClick: { [named]: reveals(S.sendWithoutNote) },
+    });
+    expect(await li.sendConnectionRequest(COOKIE, profile, "")).toEqual({ success: true });
+    expect(actions.map((a) => a[1])).toEqual([named, S.sendWithoutNote]);
+  });
+
+  it("uses LinkedIn's invite link when the profile has no Connect control", async () => {
+    const invite = "https://www.linkedin.com/preload/custom-invite/?vanityName=jane";
+    const { actions } = fakeBrowser({
+      pages: { [profile]: { elements: {} }, [invite]: { elements: { [S.sendWithoutNote]: {} } } },
+    });
+    expect(await li.sendConnectionRequest(COOKIE, profile, "")).toEqual({ success: true });
+    expect(actions.map((a) => a[1])).toEqual([S.sendWithoutNote]);
+  });
+
+  it("sends without the note when LinkedIn does not offer one", async () => {
+    const { actions } = fakeBrowser({
+      pages: { [profile]: { elements: { [S.connectButton]: {} } } },
+      onClick: { [S.connectButton]: reveals(S.sendWithoutNote) },
+    });
+    expect(await li.sendConnectionRequest(COOKIE, profile, "Hi Jane")).toEqual({ success: true });
+    expect(actions.map((a) => a[1])).toEqual([S.connectButton, S.sendWithoutNote]);
   });
 
   it("maps ERR_TOO_MANY_REDIRECTS to SESSION_EXPIRED", async () => {
