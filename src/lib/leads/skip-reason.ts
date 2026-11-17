@@ -19,6 +19,9 @@ export function formatSkipReason(reason: string | null | undefined): string | nu
   const raw = reason?.trim();
   if (!raw) return null;
   if (FIXED[raw]) return FIXED[raw];
+  if (raw.startsWith("connect_unavailable:")) {
+    return `LinkedIn did not show a way to connect with this person (${raw.slice("connect_unavailable:".length).trim()}).`;
+  }
   if (raw.startsWith("send_failed:")) {
     const code = raw.slice("send_failed:".length);
     return SEND_FAILED[code] ?? `Connection send failed (${code.replace(/_/g, " ").toLowerCase()}).`;

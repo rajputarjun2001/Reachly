@@ -208,6 +208,23 @@ describe("connectionProcessor", () => {
   });
 });
 
+describe("connectionProcessor without a Connect button", () => {
+  it("keeps what LinkedIn showed on the lead and in the event log", async () => {
+    const s = await setup();
+    sendConnectionRequest.mockResolvedValueOnce({
+      success: false,
+      error: "CONNECT_UNAVAILABLE",
+      detail: "Jane Doe showed: Message, Follow, More",
+    });
+    expect((await processConnectionJob(s.connJob())).reason).toBe("connect_unavailable");
+    const lead = await Lead.findById(s.lead._id);
+    expect(lead?.status).toBe("skipped");
+    expect(lead?.skipReason).toBe("connect_unavailable: Jane Doe showed: Message, Follow, More");
+    const [event] = await events("job_skipped");
+    expect(event.payload).toMatchObject({ reason: "connect_unavailable", detail: "Jane Doe showed: Message, Follow, More" });
+  });
+});
+
 describe("connectionProcessor proxy outage", () => {
   it("keeps the lead pending and frees the daily slot when the proxy is down", async () => {
     const s = await setup();

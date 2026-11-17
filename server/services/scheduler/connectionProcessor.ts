@@ -110,9 +110,11 @@ export async function processConnectionJob(job: JobLike<ConnectionJobData>): Pro
   }
   if (result.error === ERRORS.CONNECT_UNAVAILABLE) {
     lead.status = "skipped";
-    lead.skipReason = "connect_unavailable";
+    // Keep what LinkedIn showed instead: it is the only way to tell why there was no Connect button.
+    const detail = result.detail?.slice(0, 300);
+    lead.skipReason = detail ? `connect_unavailable: ${detail}` : "connect_unavailable";
     await lead.save();
-    return skip(ctx, "connect_unavailable");
+    return skip(ctx, "connect_unavailable", detail ? { detail } : {});
   }
   if (result.flagged) return skip(ctx, "account_flagged", { error: result.error });
   // A proxy outage is our infrastructure failing, not the lead: keep the lead pending for a later run.

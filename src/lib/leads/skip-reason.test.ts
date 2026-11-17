@@ -4,6 +4,9 @@ import { formatSkipReason } from "./skip-reason";
 describe("formatSkipReason", () => {
   it("maps known automation codes to readable text", () => {
     expect(formatSkipReason("connect_unavailable")).toMatch(/Connect button/i);
+    expect(formatSkipReason("connect_unavailable: Jane Doe showed: Message, Follow, More")).toBe(
+      "LinkedIn did not show a way to connect with this person (Jane Doe showed: Message, Follow, More).",
+    );
     expect(formatSkipReason("send_failed:SESSION_EXPIRED")).toMatch(/session expired/i);
     expect(formatSkipReason("send_failed:LOGIN_FORM_NOT_FOUND")).toMatch(/session cookies/i);
   });

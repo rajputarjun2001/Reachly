@@ -134,10 +134,35 @@ describe("streamed sign-in over the API", () => {
     expect((await request(app).get(`${base}/frame`).set(fx.auth)).status).toBe(404);
   });
 
-  it("a session LinkedIn then rejects leaves nothing behind, so the user can retry", async () => {
+  it("saves at once after sign-in: no second browser to re-verify, profile filled in afterwards", async () => {
     const fx = await createWorkspaceFixture();
     openManualLoginBrowser.mockResolvedValue(fakeSession().session as never);
-    vi.mocked(li.verifyCookies).mockResolvedValueOnce({ valid: false });
+    let finishProfile: (p: { fullName: string; headline: string; profileUrl: string }) => void = () => undefined;
+    vi.mocked(li.fetchOwnProfile).mockReturnValueOnce(new Promise((resolve) => (finishProfile = resolve)));
+    hasLinkedInSession.mockReturnValue(true);
+
+    const started = await start(fx.auth);
+    const base = `/api/accounts/connect/browser/${started.body.data.sessionId}`;
+    // The profile lookup is still running, yet the sign-in is already reported as done.
+    await vi.waitFor(async () => {
+      expect((await request(app).get(base).set(fx.auth)).body.data.status).toBe("success");
+    });
+    expect(li.verifyCookies).not.toHaveBeenCalled();
+    const saved = await LinkedInAccount.findOne({ linkedinEmail: "remote@li.com" });
+    expect(saved?.status).toBe("active");
+    expect(saved?.fullName).toBeUndefined();
+
+    finishProfile({ fullName: "Remote Owner", headline: "Founder", profileUrl: "https://www.linkedin.com/in/remote" });
+    await vi.waitFor(async () => {
+      expect((await LinkedInAccount.findById(saved!._id))?.fullName).toBe("Remote Owner");
+    });
+  });
+
+  it("a session that cannot be saved leaves nothing behind, so the user can retry", async () => {
+    const fx = await createWorkspaceFixture();
+    const broken = fakeSession().session;
+    broken.context.cookies.mockResolvedValue([SESSION_COOKIES[0]]); // li_at without JSESSIONID
+    openManualLoginBrowser.mockResolvedValue(broken as never);
     hasLinkedInSession.mockReturnValue(true);
     const started = await start(fx.auth);
     const base = `/api/accounts/connect/browser/${started.body.data.sessionId}`;
@@ -153,6 +178,34 @@ describe("streamed sign-in over the API", () => {
       const status = await request(app).get(`/api/accounts/connect/browser/${again.body.data.sessionId}`).set(fx.auth);
       expect(status.body.data.status).toBe("success");
     });
+  });
+
+  it("replays a batch of input in order, and none of it if any event is invalid", async () => {
+    const fx = await createWorkspaceFixture();
+    const { session, calls } = fakeSession();
+    openManualLoginBrowser.mockResolvedValue(session as never);
+    const base = `/api/accounts/connect/browser/${(await start(fx.auth)).body.data.sessionId}`;
+    const input = (body: unknown) => request(app).post(`${base}/input`).set(fx.auth).send(body as object);
+
+    const ok = await input({
+      events: [
+        { type: "click", x: 500, y: 200 },
+        { type: "type", text: "me@x.com" },
+        { type: "key", key: "Tab" },
+        { type: "type", text: "secret" },
+        { type: "key", key: "Enter" },
+      ],
+    });
+    expect(ok.status).toBe(200);
+    expect(ok.body.data).toEqual({ delivered: 5 });
+    expect(calls).toEqual([["click", 500, 200], ["type", "me@x.com"], ["press", "Tab"], ["type", "secret"], ["press", "Enter"]]);
+
+    calls.length = 0;
+    const bad = await input({ events: [{ type: "type", text: "typed" }, { type: "key", key: "F12" }] });
+    expect(bad.status).toBe(400);
+    expect(calls).toEqual([]);
+    expect((await input({ events: [] })).status).toBe(400);
+    expect((await input({ events: Array.from({ length: 41 }, () => ({ type: "key", key: "Tab" })) })).status).toBe(400);
   });
 
   it("rejects input the sign-in page should never receive", async () => {

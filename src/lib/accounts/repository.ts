@@ -185,14 +185,3 @@ export async function cancelBrowserConnect(sessionId: string): Promise<void> {
   const { ctx } = await scoped();
   await accountsDomain.cancelBrowserConnect(ctx, sessionId);
 }
-
-export type BrowserConnectInput =
-  | { type: "click"; x: number; y: number }
-  | { type: "type"; text: string }
-  | { type: "key"; key: string }
-  | { type: "scroll"; deltaY: number };
-
-export async function sendBrowserConnectInput(sessionId: string, input: BrowserConnectInput): Promise<void> {
-  const { ctx } = await scoped();
-  await accountsDomain.browserConnectInput(ctx, sessionId, input);
-}

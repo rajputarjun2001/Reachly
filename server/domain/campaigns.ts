@@ -311,6 +311,14 @@ export async function deleteCampaign(ctx: AuthContext, id: string) {
 
 const SENDABLE_LEAD_STATUSES = new Set(["pending", "skipped"]);
 
+function sendFailureMessage(skipReason: string): string {
+  if (skipReason.startsWith("connect_unavailable")) {
+    const detail = skipReason.slice("connect_unavailable".length).replace(/^:\s*/, "");
+    return `LinkedIn did not show a way to connect with this person${detail ? ` (${detail})` : ""}.`;
+  }
+  return `Send failed: ${skipReason}`;
+}
+
 /** Queues an immediate connection job (for testing). Reactivates paused/completed campaigns. */
 export async function sendConnectionNow(ctx: AuthContext, campaignId: string, leadId: string) {
   const campaign = await findCampaign(ctx, campaignId);
@@ -362,7 +370,7 @@ export async function sendConnectionNow(ctx: AuthContext, campaignId: string, le
   } catch (err) {
     const leadAfter = await Lead.findById(lead._id);
     if (leadAfter?.status === "skipped" && leadAfter.skipReason) {
-      throw unprocessable(`Send failed: ${leadAfter.skipReason}`);
+      throw unprocessable(sendFailureMessage(leadAfter.skipReason));
     }
     const msg = (err as Error).message || "Connection request failed";
     if (msg.includes(ERRORS.PROXY_FAILED)) {
@@ -390,7 +398,7 @@ export async function sendConnectionNow(ctx: AuthContext, campaignId: string, le
         "LinkedIn session is invalid or expired. In LinkedIn Accounts, paste fresh cookies (li_at and JSESSIONID, or a full DevTools export).",
       );
     }
-    throw unprocessable(leadAfter.skipReason ? `Send failed: ${leadAfter.skipReason}` : "Send failed");
+    throw unprocessable(leadAfter.skipReason ? sendFailureMessage(leadAfter.skipReason) : "Send failed");
   }
   throw unprocessable("Connection request did not complete — check LinkedIn account session and server logs.");
 }

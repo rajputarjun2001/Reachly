@@ -118,19 +118,44 @@ async function ensureBrowserContainer(account: LinkedInAccountDoc) {
   }
 }
 
-async function persistSession(account: LinkedInAccountDoc, cookies: SessionCookie[], source: string) {
+/** Rejects if `work` has not settled within `ms`, so a stuck dependency cannot hold a request open. */
+function withTimeout<T>(work: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+    timer.unref?.();
+  });
+  return Promise.race([work, timeout]).finally(() => clearTimeout(timer));
+}
+
+function applyProfile(account: LinkedInAccountDoc, profile: { fullName?: string; headline?: string; profileUrl?: string }) {
+  if (profile?.fullName) account.fullName = profile.fullName;
+  if (profile?.headline) account.headline = profile.headline;
+  if (profile?.profileUrl) account.profileUrl = profile.profileUrl;
+}
+
+/**
+ * Stores the session and marks the account active.
+ * `profile: "later"` saves first and fills in the name and headline afterwards, for flows where someone
+ * is watching a spinner: reading the profile opens another browser and loads two LinkedIn pages.
+ */
+async function persistSession(
+  account: LinkedInAccountDoc,
+  cookies: SessionCookie[],
+  source: string,
+  { profile = "now" }: { profile?: "now" | "later" } = {},
+) {
   const normalized = normalizeLinkedInCookiesForPlaywright(cookies);
   account.sessionCookies = encryptJSON(normalized);
   account.status = "active";
   account.flagReason = undefined;
   account.lastHealthCheck = new Date();
-  try {
-    const profile = await linkedinActions.fetchOwnProfile(normalized, browserOptions(account));
-    if (profile?.fullName) account.fullName = profile.fullName;
-    if (profile?.headline) account.headline = profile.headline;
-    if (profile?.profileUrl) account.profileUrl = profile.profileUrl;
-  } catch {
-    // Profile details are cosmetic; a failed scrape shouldn't block connecting the account.
+  if (profile === "now") {
+    try {
+      applyProfile(account, await linkedinActions.fetchOwnProfile(normalized, browserOptions(account)));
+    } catch {
+      // Profile details are cosmetic; a failed scrape shouldn't block connecting the account.
+    }
   }
   await account.save();
   await logEvent({
@@ -139,9 +164,25 @@ async function persistSession(account: LinkedInAccountDoc, cookies: SessionCooki
     eventType: "session_refreshed",
     payload: { source },
   });
-  await ensureInboxPoll(account._id).catch((err: Error) =>
+  // Scheduling talks to Redis; if Redis is unreachable the call can wait forever, and the account is
+  // already connected. The poll is also (re)scheduled when the workers start.
+  await withTimeout(ensureInboxPoll(account._id), 5000, "inbox poll schedule").catch((err: Error) =>
     console.error("[accounts] inbox poll schedule failed:", err.message),
   );
+  if (profile === "later") {
+    const options = browserOptions(account);
+    void (async () => {
+      try {
+        const found = await linkedinActions.fetchOwnProfile(normalized, options);
+        const fresh = await LinkedInAccount.findById(account._id);
+        if (!fresh) return;
+        applyProfile(fresh, found);
+        await fresh.save();
+      } catch (err) {
+        console.error("[accounts] profile lookup failed:", (err as Error).message);
+      }
+    })();
+  }
 }
 
 function verificationMessage(v: linkedinActions.LoginVerification): string {
@@ -313,7 +354,11 @@ async function createAccountFromBrowserSession(
     ...(await networkFieldsForCreate(ctx.workspaceId, input)),
   });
   try {
-    await applyImportedSession(account, cookies, "connect_browser");
+    // The owner signed in in this very browser a moment ago, so the cookies are known to be live:
+    // save them straight away instead of opening two more browsers (verify, then read the profile)
+    // while the dialog shows "Saving…".
+    await ensureBrowserContainer(account);
+    await persistSession(account, parseLinkedInSessionCookies(cookies), "connect_browser", { profile: "later" });
   } catch (err) {
     // Nothing was connected: remove the placeholder so the user can simply try again.
     await account.deleteOne().catch(() => undefined);
@@ -538,24 +583,56 @@ export async function browserConnectFrame(ctx: AuthContext, sessionId: string): 
 }
 
 /** Forwards one click, keystroke or scroll from the Reachly page to the streamed sign-in page. */
-export async function browserConnectInput(ctx: AuthContext, sessionId: string, input: unknown) {
-  const raw = (input ?? {}) as Record<string, unknown>;
-  let event: linkedinActions.LoginInput;
-  if (raw.type === "click") event = { type: "click", x: Number(raw.x), y: Number(raw.y) };
-  else if (raw.type === "type") event = { type: "type", text: String(raw.text ?? "") };
-  else if (raw.type === "key") event = { type: "key", key: String(raw.key ?? "") };
-  else if (raw.type === "scroll") event = { type: "scroll", deltaY: Number(raw.deltaY) };
-  else throw badRequest("Unknown input type");
+const MAX_INPUT_EVENTS = 40;
 
-  let delivered: boolean;
-  try {
-    delivered = await browserConnect.sendBrowserConnectInput(String(ctx.workspaceId), sessionId, event);
-  } catch (err) {
-    if ((err as Error).message === "INVALID_INPUT") throw badRequest("Invalid input");
-    throw err;
+function parseLoginInput(input: unknown): linkedinActions.LoginInput {
+  const raw = (input ?? {}) as Record<string, unknown>;
+  if (raw.type === "click") {
+    const x = Number(raw.x);
+    const y = Number(raw.y);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) throw badRequest("Invalid input");
+    return { type: "click", x, y };
   }
-  if (!delivered) throw notFound("Browser sign-in session not found or no longer running");
-  return { delivered: true };
+  if (raw.type === "type") {
+    const text = typeof raw.text === "string" ? raw.text : "";
+    if (!text || text.length > 500) throw badRequest("Invalid input");
+    return { type: "type", text };
+  }
+  if (raw.type === "key") {
+    const key = String(raw.key ?? "");
+    if (!linkedinActions.LOGIN_INPUT_KEYS.has(key)) throw badRequest("Invalid input");
+    return { type: "key", key };
+  }
+  if (raw.type === "scroll") {
+    const deltaY = Number(raw.deltaY);
+    if (!Number.isFinite(deltaY)) throw badRequest("Invalid input");
+    return { type: "scroll", deltaY };
+  }
+  throw badRequest("Unknown input type");
+}
+
+/**
+ * Forwards clicks, keystrokes and scrolls from the Reachly page to the streamed sign-in page.
+ * Accepts one event, or `{ events: [...] }` to replay several in order in a single request. Every event
+ * is checked before any is replayed.
+ */
+export async function browserConnectInput(ctx: AuthContext, sessionId: string, input: unknown) {
+  const batch = (input as { events?: unknown } | null)?.events;
+  const list = Array.isArray(batch) ? batch : [input];
+  if (!list.length || list.length > MAX_INPUT_EVENTS) throw badRequest("Invalid input");
+  const events = list.map(parseLoginInput);
+
+  for (const event of events) {
+    let delivered: boolean;
+    try {
+      delivered = await browserConnect.sendBrowserConnectInput(String(ctx.workspaceId), sessionId, event);
+    } catch (err) {
+      if ((err as Error).message === "INVALID_INPUT") throw badRequest("Invalid input");
+      throw err;
+    }
+    if (!delivered) throw notFound("Browser sign-in session not found or no longer running");
+  }
+  return { delivered: events.length };
 }
 
 export async function cancelBrowserConnect(ctx: AuthContext, sessionId: string) {
